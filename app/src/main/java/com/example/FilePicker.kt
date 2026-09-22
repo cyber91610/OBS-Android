@@ -27,15 +27,32 @@ object FilePicker {
     }
 
     fun getVideoDurationSeconds(context: Context, uri: Uri): Long {
+        return getVideoMetadata(context, uri).durationSeconds
+    }
+
+    fun getVideoMetadata(context: Context, uri: Uri): VideoMetadata {
         return try {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(context, uri)
             val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+            val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+            val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
             retriever.release()
+
             val durationMs = durationStr?.toLongOrNull() ?: 0L
-            durationMs / 1000L
+            val rawW = widthStr?.toIntOrNull() ?: 0
+            val rawH = heightStr?.toIntOrNull() ?: 0
+            val rot = rotationStr?.toIntOrNull() ?: 0
+
+            VideoMetadata(
+                durationSeconds = durationMs / 1000L,
+                rawWidth = rawW,
+                rawHeight = rawH,
+                rotation = rot
+            )
         } catch (_: Exception) {
-            0L
+            VideoMetadata(0L, 0, 0, 0)
         }
     }
 

@@ -103,7 +103,12 @@ class StreamService : Service() {
                         StreamStatus.LIVE -> {
                             val elapsed = FilePicker.formatTime(state.elapsedTimeSeconds)
                             val remaining = FilePicker.formatTime(state.remainingTimeSeconds)
-                            "Live: $elapsed / -$remaining"
+                            if (state.isLoopEnabled) {
+                                val loopCycle = state.loopCount + 1
+                                "Live (Loop #$loopCycle): $elapsed / -$remaining"
+                            } else {
+                                "Live: $elapsed / -$remaining"
+                            }
                         }
                         StreamStatus.CONNECTING -> "Connecting to YouTube..."
                         StreamStatus.PREPARING -> "Preparing video encoder..."

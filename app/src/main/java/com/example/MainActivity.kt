@@ -17,6 +17,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,6 +50,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -57,6 +62,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -137,8 +144,8 @@ fun StreamerScreen() {
     ) { uri ->
         if (uri != null) {
             val fileName = FilePicker.getFileName(context, uri)
-            val durationSec = FilePicker.getVideoDurationSeconds(context, uri)
-            StreamManager.setVideo(uri, fileName, durationSec)
+            val metadata = FilePicker.getVideoMetadata(context, uri)
+            StreamManager.setVideo(uri, fileName, metadata)
         }
     }
 
@@ -238,6 +245,29 @@ fun StreamerScreen() {
                                         modifier = Modifier.padding(top = 2.dp)
                                     )
                                 }
+
+                                if (uiState.videoMetadata.displayWidth > 0) {
+                                    Row(
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                        ) {
+                                            Text(
+                                                text = if (uiState.videoMetadata.isPortrait) {
+                                                    "📱 Portrait (${uiState.videoMetadata.displayResolution})"
+                                                } else {
+                                                    "🖥️ Landscape (${uiState.videoMetadata.displayResolution})"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(8.dp))
@@ -256,6 +286,137 @@ fun StreamerScreen() {
                                     }
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Section 2: Stream Options (Orientation & Loop Mode)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Stream Options",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        // Stream Orientation Selection
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = stringResource(R.string.orientation_label),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.streamOrientation == StreamOrientation.AUTO,
+                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.AUTO) },
+                                    label = { Text(stringResource(R.string.orientation_auto)) },
+                                    enabled = !isBusy,
+                                    modifier = Modifier.testTag("orientation_auto_chip"),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+
+                                FilterChip(
+                                    selected = uiState.streamOrientation == StreamOrientation.PORTRAIT,
+                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.PORTRAIT) },
+                                    label = { Text(stringResource(R.string.orientation_portrait)) },
+                                    enabled = !isBusy,
+                                    modifier = Modifier.testTag("orientation_portrait_chip"),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+
+                                FilterChip(
+                                    selected = uiState.streamOrientation == StreamOrientation.LANDSCAPE,
+                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.LANDSCAPE) },
+                                    label = { Text(stringResource(R.string.orientation_landscape)) },
+                                    enabled = !isBusy,
+                                    modifier = Modifier.testTag("orientation_landscape_chip"),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+
+                            Text(
+                                text = when (uiState.streamOrientation) {
+                                    StreamOrientation.AUTO -> stringResource(R.string.orientation_hint)
+                                    StreamOrientation.PORTRAIT -> "Enforces vertical format (9:16) for YouTube Shorts & mobile viewing."
+                                    StreamOrientation.LANDSCAPE -> "Enforces horizontal format (16:9) for standard landscape streams."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        // Repeat Video (Loop Mode) Toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Loop icon",
+                                        tint = if (uiState.isLoopEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.loop_label),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.loop_description),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Switch(
+                                checked = uiState.isLoopEnabled,
+                                onCheckedChange = { StreamManager.setLoopEnabled(it) },
+                                modifier = Modifier.testTag("loop_switch"),
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
                         }
                     }
                 }
@@ -349,7 +510,43 @@ fun StreamerScreen() {
                                 fontWeight = FontWeight.SemiBold
                             )
 
-                            StatusBadge(status = uiState.status)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (uiState.isLoopEnabled) {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Looping badge",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = if (uiState.status == StreamStatus.LIVE && uiState.loopCount > 0) {
+                                                    "Loop #${uiState.loopCount + 1}"
+                                                } else {
+                                                    "Loop ON"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                StatusBadge(status = uiState.status)
+                            }
                         }
 
                         // Progress Bar (when streaming or has progress)
@@ -386,7 +583,7 @@ fun StreamerScreen() {
                                 horizontalAlignment = Alignment.Start
                             ) {
                                 Text(
-                                    text = stringResource(R.string.elapsed_time),
+                                    text = if (uiState.isLoopEnabled) "Cycle Elapsed" else stringResource(R.string.elapsed_time),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
@@ -398,6 +595,14 @@ fun StreamerScreen() {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("elapsed_time_text")
                                 )
+                                if (uiState.isLoopEnabled && uiState.totalStreamElapsedSeconds > 0) {
+                                    Text(
+                                        text = "Total: ${FilePicker.formatTime(uiState.totalStreamElapsedSeconds)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
 
                             // Remaining Time
@@ -405,7 +610,7 @@ fun StreamerScreen() {
                                 horizontalAlignment = Alignment.End
                             ) {
                                 Text(
-                                    text = stringResource(R.string.remaining_time),
+                                    text = if (uiState.isLoopEnabled) "Cycle Remaining" else stringResource(R.string.remaining_time),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
@@ -421,6 +626,13 @@ fun StreamerScreen() {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("remaining_time_text")
                                 )
+                                if (uiState.isLoopEnabled) {
+                                    Text(
+                                        text = "Endless repeat",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
                         }
 

@@ -27,17 +27,22 @@ object StreamManager {
 
     private var rtmpFromFile: RtmpFromFile? = null
     private var tickerJob: Job? = null
+    private var streamStartTime = 0L
+    private var lastVideoTime = 0.0
     var onServiceStopRequested: (() -> Unit)? = null
 
-    fun setVideo(uri: Uri, fileName: String, durationSec: Long) {
+    fun setVideo(uri: Uri, fileName: String, metadata: VideoMetadata) {
         _uiState.update {
             it.copy(
                 selectedVideoUri = uri,
                 selectedFileName = fileName,
-                totalDurationSeconds = durationSec,
+                videoMetadata = metadata,
+                totalDurationSeconds = metadata.durationSeconds,
                 elapsedTimeSeconds = 0L,
-                remainingTimeSeconds = durationSec,
+                remainingTimeSeconds = metadata.durationSeconds,
                 errorMessage = null,
+                loopCount = 0,
+                totalStreamElapsedSeconds = 0L,
                 status = if (it.status == StreamStatus.FINISHED || it.status == StreamStatus.ERROR) {
                     StreamStatus.IDLE
                 } else {
@@ -45,6 +50,17 @@ object StreamManager {
                 }
             )
         }
+    }
+
+    fun setLoopEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isLoopEnabled = enabled) }
+        try {
+            rtmpFromFile?.setLoopMode(enabled)
+        } catch (_: Exception) {}
+    }
+
+    fun setStreamOrientation(orientation: StreamOrientation) {
+        _uiState.update { it.copy(streamOrientation = orientation) }
     }
 
     fun setStreamKey(key: String) {
@@ -207,10 +223,55 @@ object StreamManager {
         }
 
         try {
-            val rtmp = RtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
-            rtmp.setLoopMode(false)
+            val state = _uiState.value
+            val meta = state.videoMetadata
 
-            val vPrep = rtmp.prepareVideo(context, uri)
+            // Calculate rotation to supply to RootEncoder's VideoEncoder
+            // If rotation == 90 or 270, VideoEncoder swaps format width/height to produce portrait
+            val targetRotation = when (state.streamOrientation) {
+                StreamOrientation.AUTO -> {
+                    // Match the video's natural orientation:
+                    // If video container has rotation metadata (e.g. 90 or 270 deg from phone camera),
+                    // pass it so VideoEncoder inverts the raw dimensions to portrait format (e.g. 1080x1920).
+                    // If the video already has width < height with rotation 0, pass 0.
+                    meta.rotation
+                }
+                StreamOrientation.PORTRAIT -> {
+                    if (meta.isRotated) {
+                        meta.rotation
+                    } else if (meta.rawWidth > meta.rawHeight && meta.rawHeight > 0) {
+                        // Raw video is landscape, rotate 90 degrees to stream vertically
+                        90
+                    } else {
+                        0
+                    }
+                }
+                StreamOrientation.LANDSCAPE -> {
+                    if (meta.isRotated) {
+                        // Container has 90 deg rotation, passing 0 keeps raw horizontal dimensions
+                        0
+                    } else if (meta.rawHeight > meta.rawWidth && meta.rawWidth > 0) {
+                        // Raw video is portrait, rotate 90 degrees to stream horizontally
+                        90
+                    } else {
+                        0
+                    }
+                }
+            }
+
+            val effectiveW = if (targetRotation == 90 || targetRotation == 270) meta.rawHeight else meta.rawWidth
+            val effectiveH = if (targetRotation == 90 || targetRotation == 270) meta.rawWidth else meta.rawHeight
+            val maxDimension = maxOf(effectiveW, effectiveH)
+            val bitrate = when {
+                maxDimension >= 1080 -> 2500000
+                maxDimension >= 720 -> 1800000
+                else -> 1228800
+            }
+
+            val rtmp = RtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
+            rtmp.setLoopMode(state.isLoopEnabled)
+
+            val vPrep = rtmp.prepareVideo(context, uri, bitrate, targetRotation)
             val aPrep = rtmp.prepareAudio(context, uri)
 
             if (!vPrep) {
@@ -254,23 +315,35 @@ object StreamManager {
 
     private fun startTicker() {
         tickerJob?.cancel()
+        streamStartTime = System.currentTimeMillis()
+        lastVideoTime = 0.0
         tickerJob = scope.launch {
             while (isActive) {
                 delay(500)
                 val rtmp = rtmpFromFile
                 if (rtmp != null && (rtmp.isStreaming || _uiState.value.status == StreamStatus.LIVE)) {
-                    val elapsed = rtmp.videoTime.toLong()
+                    val currentVideoSecs = rtmp.videoTime
+                    val elapsed = currentVideoSecs.toLong()
                     val total = if (rtmp.videoDuration > 0) {
                         rtmp.videoDuration.toLong()
                     } else {
                         _uiState.value.totalDurationSeconds
                     }
+                    val totalStreamElapsed = (System.currentTimeMillis() - streamStartTime) / 1000L
+
+                    // Detect loop completion: when videoTime wraps back to near 0
+                    if (_uiState.value.isLoopEnabled && lastVideoTime > 2.0 && currentVideoSecs < 1.0) {
+                        _uiState.update { it.copy(loopCount = it.loopCount + 1) }
+                    }
+                    lastVideoTime = currentVideoSecs
+
                     val remaining = maxOf(0L, total - elapsed)
                     _uiState.update {
                         it.copy(
                             elapsedTimeSeconds = elapsed,
                             remainingTimeSeconds = remaining,
-                            totalDurationSeconds = total
+                            totalDurationSeconds = total,
+                            totalStreamElapsedSeconds = totalStreamElapsed
                         )
                     }
                 }
@@ -281,6 +354,7 @@ object StreamManager {
     private fun stopStreamInternal(finishedNaturally: Boolean, keepError: Boolean) {
         tickerJob?.cancel()
         tickerJob = null
+        lastVideoTime = 0.0
 
         cleanupRtmp()
 
