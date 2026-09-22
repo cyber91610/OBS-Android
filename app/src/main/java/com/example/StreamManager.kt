@@ -271,7 +271,7 @@ object StreamManager {
             val rtmp = RtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
             rtmp.setLoopMode(state.isLoopEnabled)
 
-            val vPrep = rtmp.prepareVideo(context, uri, bitrate, targetRotation)
+            val vPrep = rtmp.prepareVideo(context, uri, effectiveW, effectiveH, bitrate, targetRotation)
             val aPrep = rtmp.prepareAudio(context, uri)
 
             if (!vPrep) {
