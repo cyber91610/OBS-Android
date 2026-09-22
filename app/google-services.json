@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "711858465296",
+    "project_id": "android-obs",
+    "storage_bucket": "android-obs.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:711858465296:android:b4443079fe0737b3be3895",
+        "android_client_info": {
+          "package_name": "com.example"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAa0J4_uXIjg_8r9QADPMYavhNrcCmwPuU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
