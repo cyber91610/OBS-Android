@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">YouTube Video Streamer</string>
+    <string name="select_mp4">Select MP4</string>
+    <string name="change_video">Change Video</string>
+    <string name="no_video_selected">No video selected</string>
+    <string name="stream_key_label">YouTube Stream Key</string>
+    <string name="stream_key_placeholder">Paste your stream key here</string>
+    <string name="start_stream">Start Stream</string>
+    <string name="stop_stream">Stop Stream</string>
+    <string name="elapsed_time">Elapsed Time</string>
+    <string name="remaining_time">Remaining Time</string>
+    <string name="status_label">Status</string>
+    <string name="stream_info_hint">The app automatically connects to rtmp://a.rtmp.youtube.com/live2/ with your key.</string>
+</resources>

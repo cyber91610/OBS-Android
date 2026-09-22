@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Video Camera body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,38 C30.34,38 29,39.34 29,41 L29,67 C29,68.66 30.34,70 32,70 L58,70 C59.66,70 61,68.66 61,67 L61,60.5 L69.5,67 C70.33,67.62 71.5,67.03 71.5,66 L71.5,42 C71.5,40.97 70.33,40.38 69.5,41 L61,47.5 L61,41 C61,39.34 59.66,38 58,38 L32,38 Z" />
+    <!-- Play triangle inside camera -->
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M42,48 L42,60 L51,54 Z" />
+    <!-- Live broadcast waves on top right -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M75,37 C77.5,39.5 77.5,43.5 75,46"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M79,33 C83.5,37.5 83.5,45.5 79,50"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+</vector>
