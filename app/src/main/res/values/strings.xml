@@ -13,9 +13,4 @@
     <string name="stream_info_hint">The app automatically connects to rtmp://a.rtmp.youtube.com/live2/ with your key.</string>
     <string name="loop_label">Repeat Video (Loop Mode)</string>
     <string name="loop_description">Continuously repeats the video endlessly from the start when it ends.</string>
-    <string name="orientation_label">Stream Orientation</string>
-    <string name="orientation_auto">Auto</string>
-    <string name="orientation_portrait">Portrait (Vertical)</string>
-    <string name="orientation_landscape">Landscape (Horizontal)</string>
-    <string name="orientation_hint">Preserves portrait mode for vertical videos and landscape for horizontal videos.</string>
 </resources>

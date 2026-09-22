@@ -33,7 +33,6 @@ class ExampleUnitTest {
     assertEquals(0L, state.elapsedTimeSeconds)
     assertEquals(false, state.isStreaming)
     assertEquals(false, state.isLoopEnabled)
-    assertEquals(StreamOrientation.AUTO, state.streamOrientation)
     assertEquals(0, state.loopCount)
     assertEquals(0L, state.totalStreamElapsedSeconds)
   }
@@ -75,12 +74,5 @@ class ExampleUnitTest {
     assertEquals(1920, verticalVideo.displayHeight)
     assertEquals(true, verticalVideo.isPortrait)
     assertEquals("1080x1920", verticalVideo.displayResolution)
-  }
-
-  @Test
-  fun testStreamOrientations() {
-    assertEquals("Auto", StreamOrientation.AUTO.label)
-    assertEquals("Portrait", StreamOrientation.PORTRAIT.label)
-    assertEquals("Landscape", StreamOrientation.LANDSCAPE.label)
   }
 }

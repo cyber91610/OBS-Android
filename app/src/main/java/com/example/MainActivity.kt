@@ -50,9 +50,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -290,7 +287,7 @@ fun StreamerScreen() {
                     }
                 }
 
-                // Section 2: Stream Options (Orientation & Loop Mode)
+                // Section 2: Repeat Video (Loop Mode)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -298,126 +295,48 @@ fun StreamerScreen() {
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = "Stream Options",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        // Stream Orientation Selection
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = stringResource(R.string.orientation_label),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilterChip(
-                                    selected = uiState.streamOrientation == StreamOrientation.AUTO,
-                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.AUTO) },
-                                    label = { Text(stringResource(R.string.orientation_auto)) },
-                                    enabled = !isBusy,
-                                    modifier = Modifier.testTag("orientation_auto_chip"),
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Loop icon",
+                                    tint = if (uiState.isLoopEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
                                 )
-
-                                FilterChip(
-                                    selected = uiState.streamOrientation == StreamOrientation.PORTRAIT,
-                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.PORTRAIT) },
-                                    label = { Text(stringResource(R.string.orientation_portrait)) },
-                                    enabled = !isBusy,
-                                    modifier = Modifier.testTag("orientation_portrait_chip"),
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                )
-
-                                FilterChip(
-                                    selected = uiState.streamOrientation == StreamOrientation.LANDSCAPE,
-                                    onClick = { StreamManager.setStreamOrientation(StreamOrientation.LANDSCAPE) },
-                                    label = { Text(stringResource(R.string.orientation_landscape)) },
-                                    enabled = !isBusy,
-                                    modifier = Modifier.testTag("orientation_landscape_chip"),
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                )
-                            }
-
-                            Text(
-                                text = when (uiState.streamOrientation) {
-                                    StreamOrientation.AUTO -> stringResource(R.string.orientation_hint)
-                                    StreamOrientation.PORTRAIT -> "Enforces vertical format (9:16) for YouTube Shorts & mobile viewing."
-                                    StreamOrientation.LANDSCAPE -> "Enforces horizontal format (16:9) for standard landscape streams."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                lineHeight = 16.sp
-                            )
-                        }
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-
-                        // Repeat Video (Loop Mode) Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Loop icon",
-                                        tint = if (uiState.isLoopEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.loop_label),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = stringResource(R.string.loop_description),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    lineHeight = 16.sp,
-                                    modifier = Modifier.padding(top = 2.dp)
+                                    text = stringResource(R.string.loop_label),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Switch(
-                                checked = uiState.isLoopEnabled,
-                                onCheckedChange = { StreamManager.setLoopEnabled(it) },
-                                modifier = Modifier.testTag("loop_switch"),
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
-                                )
+                            Text(
+                                text = stringResource(R.string.loop_description),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                lineHeight = 16.sp,
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Switch(
+                            checked = uiState.isLoopEnabled,
+                            onCheckedChange = { StreamManager.setLoopEnabled(it) },
+                            modifier = Modifier.testTag("loop_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        )
                     }
                 }
 

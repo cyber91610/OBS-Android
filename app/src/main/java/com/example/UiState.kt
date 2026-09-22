@@ -11,12 +11,6 @@ enum class StreamStatus(val displayText: String) {
     ERROR("Error")
 }
 
-enum class StreamOrientation(val label: String, val description: String) {
-    AUTO("Auto", "Preserve original video orientation"),
-    PORTRAIT("Portrait", "Vertical stream format (9:16)"),
-    LANDSCAPE("Landscape", "Horizontal stream format (16:9)")
-}
-
 data class VideoMetadata(
     val durationSeconds: Long = 0L,
     val rawWidth: Int = 0,
@@ -60,7 +54,6 @@ data class UiState(
     val isStreaming: Boolean = false,
     val currentBitrate: Long = 0L,
     val isLoopEnabled: Boolean = false,
-    val streamOrientation: StreamOrientation = StreamOrientation.AUTO,
     val loopCount: Int = 0,
     val totalStreamElapsedSeconds: Long = 0L
 )
