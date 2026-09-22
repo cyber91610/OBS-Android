@@ -13,4 +13,13 @@
     <string name="stream_info_hint">The app automatically connects to rtmp://a.rtmp.youtube.com/live2/ with your key.</string>
     <string name="loop_label">Repeat Video (Loop Mode)</string>
     <string name="loop_description">Continuously repeats the video endlessly from the start when it ends.</string>
+    <string name="orientation_label">Streaming Format Profile</string>
+    <string name="orientation_portrait">Portrait (9:16)</string>
+    <string name="orientation_landscape">Landscape (16:9)</string>
+    <string name="orientation_hint">Choose Landscape (1920x1080) or Portrait (1080x1920) before going live.</string>
+    <string name="profile_landscape_title">Landscape Mode</string>
+    <string name="profile_portrait_title">Portrait Mode</string>
+    <string name="base_canvas_label">Base (Canvas)</string>
+    <string name="output_scaled_label">Output (Scaled)</string>
+    <string name="fit_to_screen_label">Fit to Screen (Aspect Fill)</string>
 </resources>

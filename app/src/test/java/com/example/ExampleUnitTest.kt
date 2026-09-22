@@ -33,6 +33,10 @@ class ExampleUnitTest {
     assertEquals(0L, state.elapsedTimeSeconds)
     assertEquals(false, state.isStreaming)
     assertEquals(false, state.isLoopEnabled)
+    assertEquals(StreamResolutionProfile.LANDSCAPE, state.streamProfile)
+    assertEquals("1920x1080", state.activeBaseResolution)
+    assertEquals("1920x1080", state.activeOutputResolution)
+    assertEquals("16:9", state.activeAspectRatio)
     assertEquals(0, state.loopCount)
     assertEquals(0L, state.totalStreamElapsedSeconds)
   }
@@ -74,5 +78,30 @@ class ExampleUnitTest {
     assertEquals(1920, verticalVideo.displayHeight)
     assertEquals(true, verticalVideo.isPortrait)
     assertEquals("1080x1920", verticalVideo.displayResolution)
+  }
+
+  @Test
+  fun testStreamResolutionProfiles() {
+    // Landscape Profile (Standard 16:9 Aspect Ratio)
+    val landscape = StreamResolutionProfile.LANDSCAPE
+    assertEquals(1920, landscape.baseCanvasWidth)
+    assertEquals(1080, landscape.baseCanvasHeight)
+    assertEquals(1920, landscape.outputScaledWidth)
+    assertEquals(1080, landscape.outputScaledHeight)
+    assertEquals("1920x1080", landscape.baseResolution)
+    assertEquals("1920x1080", landscape.outputResolution)
+    assertEquals("16:9", landscape.aspectRatio)
+    assertEquals(false, landscape.isPortrait)
+
+    // Portrait Profile (Shorts 9:16 Aspect Ratio)
+    val portrait = StreamResolutionProfile.PORTRAIT
+    assertEquals(1080, portrait.baseCanvasWidth)
+    assertEquals(1920, portrait.baseCanvasHeight)
+    assertEquals(1080, portrait.outputScaledWidth)
+    assertEquals(1920, portrait.outputScaledHeight)
+    assertEquals("1080x1920", portrait.baseResolution)
+    assertEquals("1080x1920", portrait.outputResolution)
+    assertEquals("9:16", portrait.aspectRatio)
+    assertEquals(true, portrait.isPortrait)
   }
 }

@@ -25,7 +25,7 @@ object StreamManager {
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
-    private var rtmpFromFile: RtmpFromFile? = null
+    private var rtmpFromFile: CustomRtmpFromFile? = null
     private var tickerJob: Job? = null
     private var streamStartTime = 0L
     private var lastVideoTime = 0.0
@@ -57,6 +57,14 @@ object StreamManager {
         try {
             rtmpFromFile?.setLoopMode(enabled)
         } catch (_: Exception) {}
+    }
+
+    fun setStreamProfile(profile: StreamResolutionProfile) {
+        _uiState.update { it.copy(streamProfile = profile) }
+    }
+
+    fun setStreamOrientation(orientation: StreamResolutionProfile) {
+        setStreamProfile(orientation)
     }
 
     fun setStreamKey(key: String) {
@@ -220,11 +228,30 @@ object StreamManager {
 
         try {
             val state = _uiState.value
+            val profile = state.streamProfile
 
-            val rtmp = RtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
+            // Resolution variables dynamically updated based on the selected profile:
+            // Profile 1: Landscape Mode (16:9 Standard) -> Base Canvas: 1920x1080, Output Scaled: 1920x1080
+            // Profile 2: Portrait Mode (9:16 Shorts)    -> Base Canvas: 1080x1920, Output Scaled: 1080x1920
+            val baseCanvasWidth = profile.baseCanvasWidth
+            val baseCanvasHeight = profile.baseCanvasHeight
+            val outputScaledWidth = profile.outputScaledWidth
+            val outputScaledHeight = profile.outputScaledHeight
+            val isPortrait = profile.isPortrait
+            val bitrate = 3000000 // 3.0 Mbps for crisp 1080p stream
+
+            val rtmp = CustomRtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
             rtmp.setLoopMode(state.isLoopEnabled)
 
-            val vPrep = rtmp.prepareVideo(context, uri)
+            // Prepares video decoder, sets native output resolution, and configures GL Fit-to-Screen aspect ratio scaling
+            val vPrep = rtmp.prepareVideoWithProfile(
+                context = context,
+                uri = uri,
+                targetWidth = outputScaledWidth,
+                targetHeight = outputScaledHeight,
+                bitrate = bitrate,
+                isPortrait = isPortrait
+            )
             val aPrep = rtmp.prepareAudio(context, uri)
 
             if (!vPrep) {
