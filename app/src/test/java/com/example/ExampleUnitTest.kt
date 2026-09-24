@@ -159,5 +159,16 @@ class ExampleUnitTest {
     assertNotNull(pauseField)
     assertNotNull(syncField)
     assertNotNull(startTsField)
+
+    val rtmpClientClass = com.pedro.rtmp.rtmp.RtmpClient::class.java
+    println("RtmpClient jar: " + rtmpClientClass.protectionDomain.codeSource.location.path)
+    for (m in rtmpClientClass.declaredMethods) {
+      if (m.name.contains("send") || m.name.contains("reConnect") || m.name.contains("connect") || m.name.contains("reset")) {
+        println("RtmpClient method: ${m.name}")
+      }
+    }
+    for (f in rtmpClientClass.declaredFields) {
+      println("RtmpClient field: ${f.name} (${f.type.name})")
+    }
   }
 }
