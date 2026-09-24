@@ -23,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +41,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -83,16 +86,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -124,6 +130,7 @@ class MainActivity : ComponentActivity() {
 fun StreamerScreen() {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val clipboardManager = LocalClipboardManager.current
     val uiState by StreamManager.uiState.collectAsStateWithLifecycle()
 
     var showPassword by rememberSaveable { mutableStateOf(false) }
@@ -186,30 +193,32 @@ fun StreamerScreen() {
                 },
                 actions = {
                     val logs by AppLogManager.logs.collectAsStateWithLifecycle()
-                    val hasErrors = logs.any { it.level == LogLevel.ERROR }
+                    val errorCount = remember(logs) { logs.count { it.level == LogLevel.ERROR } }
+                    val hasErrors = errorCount > 0
 
-                    IconButton(
+                    Button(
                         onClick = { showLogsSheet = true },
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("open_logs_button")
+                            .padding(end = 8.dp)
+                            .testTag("top_bar_logs_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = if (hasErrors) ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ) else ButtonDefaults.filledTonalButtonColors(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        BadgedBox(
-                            badge = {
-                                if (hasErrors) {
-                                    Badge(
-                                        containerColor = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(8.dp)
-                                    )
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = "Open Diagnostics and Logs",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (hasErrors) "Logs ($errorCount ⚠️)" else "Logs (${logs.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -867,6 +876,156 @@ fun StreamerScreen() {
                             fontWeight = FontWeight.Bold,
                             color = if (isBusy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         )
+                    }
+                }
+
+                // Section 5: Diagnostics & Live Stream Logs
+                val currentLogs by AppLogManager.logs.collectAsStateWithLifecycle()
+                val latestLog = currentLogs.lastOrNull()
+                val sectionErrorCount = remember(currentLogs) { currentLogs.count { it.level == LogLevel.ERROR } }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("diagnostic_logs_section_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (sectionErrorCount > 0) MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Title Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = "Logs",
+                                    tint = if (sectionErrorCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Diagnostics & Stream Logs",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (sectionErrorCount > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = if (sectionErrorCount > 0) "${currentLogs.size} logs ($sectionErrorCount ERR)" else "${currentLogs.size} logs",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (sectionErrorCount > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Live Latest Log Preview Strip
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF0F172A),
+                            border = BorderStroke(1.dp, if (latestLog?.level == LogLevel.ERROR) Color(0xFFFF5252) else Color(0xFF334155)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (latestLog != null) {
+                                        "Latest: [${latestLog.formattedTime}] [${latestLog.level.name}] ${latestLog.message}"
+                                    } else {
+                                        "Latest: No logs recorded yet."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = if (latestLog?.level == LogLevel.ERROR) Color(0xFFFF8A80) else Color(0xFFE2E8F0),
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Prominent Action Buttons: "Open Logs" and "Copy All Logs"
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { showLogsSheet = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("open_full_logs_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Open Logs",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    val allText = AppLogManager.getAllLogsAsText()
+                                    clipboardManager.setText(AnnotatedString(allText))
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Copied all ${currentLogs.size} logs to clipboard at once!",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .height(44.dp)
+                                    .testTag("quick_copy_all_logs_button"),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Copy All Logs",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
 

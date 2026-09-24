@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,35 +25,29 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,14 +67,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.AppLogManager
 import com.example.LogEntry
 import com.example.LogLevel
 import com.example.R
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TerminalBackground = Color(0xFF0F172A)
@@ -100,11 +95,14 @@ enum class LogFilter {
     INFO
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Diagnostic Logs Dialog
+ * Implemented as a robust full-surface Dialog to ensure 100% reliable opening
+ * even during active 1080p 60fps/30fps RTMP streaming without animation locks or gesture cancellations.
+ */
 @Composable
 fun LogsViewerSheet(
-    onDismissRequest: () -> Unit,
-    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -112,6 +110,7 @@ fun LogsViewerSheet(
     val scope = rememberCoroutineScope()
 
     var activeFilter by rememberSaveable { mutableStateOf(LogFilter.ALL) }
+    var showCopiedBanner by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     val errorCount = remember(logs) { logs.count { it.level == LogLevel.ERROR } }
@@ -133,226 +132,297 @@ fun LogsViewerSheet(
         }
     }
 
-    ModalBottomSheet(
+    // Function to copy ALL logs at once cleanly
+    val copyAllLogsAction = {
+        val allLogsText = AppLogManager.getAllLogsAsText()
+        clipboardManager.setText(AnnotatedString(allLogsText))
+        Toast.makeText(
+            context,
+            "Copied all ${logs.size} log entries at once to clipboard!",
+            Toast.LENGTH_SHORT
+        ).show()
+        showCopiedBanner = true
+        scope.launch {
+            delay(3500)
+            showCopiedBanner = false
+        }
+    }
+
+    Dialog(
         onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.testTag("logs_modal_sheet")
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
     ) {
-        Column(
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.92f)
-                .padding(horizontal = 16.dp)
+                .fillMaxSize()
+                .padding(top = 24.dp, start = 12.dp, end = 12.dp, bottom = 16.dp)
+                .testTag("logs_dialog_surface"),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
-            // Header: Title and Close
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .fillMaxSize()
+                    .padding(16.dp)
             ) {
+                // Top Header Row
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "Terminal Icon",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Column {
-                        Text(
-                            text = stringResource(R.string.logs_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${logs.size} total entries • $errorCount errors",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (errorCount > 0) ColorError else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = onDismissRequest,
-                    modifier = Modifier.minimumInteractiveComponentSize()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Logs"
-                    )
-                }
-            }
-
-            // Quick Actions: Copy All & Clear
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Copy Logs Button
-                FilledTonalButton(
-                    onClick = {
-                        val allLogs = AppLogManager.getAllLogsAsText()
-                        clipboardManager.setText(AnnotatedString(allLogs))
-                        Toast.makeText(context, context.getString(R.string.logs_copied), Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .minimumInteractiveComponentSize()
-                        .testTag("copy_logs_button"),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = stringResource(R.string.copy_logs),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.copy_logs),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                // Clear Logs Button
-                OutlinedButton(
-                    onClick = {
-                        AppLogManager.clearLogs()
-                        Toast.makeText(context, context.getString(R.string.logs_cleared), Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .minimumInteractiveComponentSize()
-                        .testTag("clear_logs_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = stringResource(R.string.clear_logs),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.clear_logs),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            // Filter Chips
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilterChip(
-                    selected = activeFilter == LogFilter.ALL,
-                    onClick = { activeFilter = LogFilter.ALL },
-                    label = { Text("All (${logs.size})") },
-                    modifier = Modifier.testTag("filter_chip_all")
-                )
-                FilterChip(
-                    selected = activeFilter == LogFilter.ERRORS,
-                    onClick = { activeFilter = LogFilter.ERRORS },
-                    label = { Text("Errors ($errorCount)") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ColorError.copy(alpha = 0.2f),
-                        selectedLabelColor = ColorError
-                    ),
-                    modifier = Modifier.testTag("filter_chip_errors")
-                )
-                FilterChip(
-                    selected = activeFilter == LogFilter.WARNINGS,
-                    onClick = { activeFilter = LogFilter.WARNINGS },
-                    label = { Text("Warnings ($warnCount)") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ColorWarn.copy(alpha = 0.2f),
-                        selectedLabelColor = ColorWarn
-                    ),
-                    modifier = Modifier.testTag("filter_chip_warnings")
-                )
-                FilterChip(
-                    selected = activeFilter == LogFilter.INFO,
-                    onClick = { activeFilter = LogFilter.INFO },
-                    label = { Text("Info ($infoCount)") },
-                    modifier = Modifier.testTag("filter_chip_info")
-                )
-            }
-
-            // Terminal Log Viewer Canvas
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = 4.dp, bottom = 12.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = TerminalBackground,
-                border = BorderStroke(1.dp, TerminalBorder)
-            ) {
-                if (filteredLogs.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(if (errorCount > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = "Empty logs",
-                                tint = Color(0xFF64748B),
-                                modifier = Modifier.size(48.dp)
+                                imageVector = Icons.Default.Description,
+                                contentDescription = "Logs",
+                                tint = if (errorCount > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "System & Stream Logs",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = stringResource(R.string.no_logs),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF94A3B8),
-                                fontFamily = FontFamily.Monospace,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                text = "${logs.size} total entries • $errorCount errors recorded",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (errorCount > 0) ColorError else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                } else {
-                    LazyColumn(
-                        state = listState,
+
+                    // Close Button
+                    FilledTonalButton(
+                        onClick = onDismissRequest,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(8.dp)
-                            .testTag("logs_list"),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .height(36.dp)
+                            .testTag("close_logs_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        items(filteredLogs, key = { it.id }) { entry ->
-                            LogItemRow(
-                                entry = entry,
-                                onCopy = { textToCopy ->
-                                    clipboardManager.setText(AnnotatedString(textToCopy))
-                                    Toast.makeText(context, "Log line copied to clipboard", Toast.LENGTH_SHORT).show()
-                                }
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Close",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Temporary Banner confirming Copy All Logs
+                AnimatedVisibility(visible = showCopiedBanner) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ColorSuccess.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ColorSuccess),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = ColorSuccess,
+                                modifier = Modifier.size(20.dp)
                             )
+                            Text(
+                                text = "All ${logs.size} logs copied at once! Ready to paste anywhere.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF10B981)
+                            )
+                        }
+                    }
+                }
+
+                // Primary Action Bar: Unmissable "Copy All Logs" and "Clear Logs"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Giant "Copy All Logs" button
+                    Button(
+                        onClick = { copyAllLogsAction() },
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(48.dp)
+                            .testTag("copy_logs_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy all logs",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Copy All Logs (${logs.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    // "Clear Logs" button
+                    OutlinedButton(
+                        onClick = {
+                            AppLogManager.clearLogs()
+                            Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(48.dp)
+                            .testTag("clear_logs_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear logs",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Clear Logs",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Filter Chips Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = activeFilter == LogFilter.ALL,
+                        onClick = { activeFilter = LogFilter.ALL },
+                        label = { Text("All (${logs.size})") },
+                        modifier = Modifier.testTag("filter_chip_all")
+                    )
+                    FilterChip(
+                        selected = activeFilter == LogFilter.ERRORS,
+                        onClick = { activeFilter = LogFilter.ERRORS },
+                        label = { Text("Errors ($errorCount)") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ColorError.copy(alpha = 0.2f),
+                            selectedLabelColor = ColorError
+                        ),
+                        modifier = Modifier.testTag("filter_chip_errors")
+                    )
+                    FilterChip(
+                        selected = activeFilter == LogFilter.WARNINGS,
+                        onClick = { activeFilter = LogFilter.WARNINGS },
+                        label = { Text("Warnings ($warnCount)") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ColorWarn.copy(alpha = 0.2f),
+                            selectedLabelColor = ColorWarn
+                        ),
+                        modifier = Modifier.testTag("filter_chip_warnings")
+                    )
+                    FilterChip(
+                        selected = activeFilter == LogFilter.INFO,
+                        onClick = { activeFilter = LogFilter.INFO },
+                        label = { Text("Info ($infoCount)") },
+                        modifier = Modifier.testTag("filter_chip_info")
+                    )
+                }
+
+                // Monospace Terminal Log Viewer Canvas
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = TerminalBackground,
+                    border = BorderStroke(1.dp, TerminalBorder)
+                ) {
+                    if (filteredLogs.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Terminal,
+                                    contentDescription = "Empty logs",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.no_logs),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF94A3B8),
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(10.dp)
+                                .testTag("logs_list"),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(filteredLogs, key = { it.id }) { entry ->
+                                LogItemRow(
+                                    entry = entry,
+                                    onCopy = { textToCopy ->
+                                        clipboardManager.setText(AnnotatedString(textToCopy))
+                                        Toast.makeText(context, "Log line copied", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -451,7 +521,7 @@ fun LogItemRow(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy log entry",
+                        contentDescription = "Copy log line",
                         tint = Color(0xFF94A3B8),
                         modifier = Modifier.size(14.dp)
                     )
@@ -489,7 +559,7 @@ fun LogItemRow(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isExpanded) "Hide Exception Details" else "View Exception Details / StackTrace",
+                        text = if (isExpanded) "Hide Exception Trace" else "View Exception Trace",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace,
