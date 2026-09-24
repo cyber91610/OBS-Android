@@ -104,4 +104,42 @@ class ExampleUnitTest {
     assertEquals("9:16", portrait.aspectRatio)
     assertEquals(true, portrait.isPortrait)
   }
+
+  @Test
+  fun testAppLogManagerOperations() {
+    AppLogManager.clearLogs()
+    assertEquals(0, AppLogManager.logs.value.size)
+
+    AppLogManager.i("TestTag", "Info message")
+    AppLogManager.w("TestTag", "Warning message")
+    AppLogManager.e("TestTag", "Error message", RuntimeException("Simulated exception"))
+    AppLogManager.s("TestTag", "Success message")
+
+    val currentLogs = AppLogManager.logs.value
+    assertEquals(4, currentLogs.size)
+
+    assertEquals(LogLevel.INFO, currentLogs[0].level)
+    assertEquals("Info message", currentLogs[0].message)
+
+    assertEquals(LogLevel.WARN, currentLogs[1].level)
+    assertEquals("Warning message", currentLogs[1].message)
+
+    assertEquals(LogLevel.ERROR, currentLogs[2].level)
+    assertEquals("Error message", currentLogs[2].message)
+    assertNotNull(currentLogs[2].details)
+
+    assertEquals(LogLevel.SUCCESS, currentLogs[3].level)
+    assertEquals("Success message", currentLogs[3].message)
+
+    val exportedText = AppLogManager.getAllLogsAsText()
+    org.junit.Assert.assertTrue(exportedText.contains("[INFO] [TestTag] Info message"))
+    org.junit.Assert.assertTrue(exportedText.contains("[WARN] [TestTag] Warning message"))
+    org.junit.Assert.assertTrue(exportedText.contains("[ERROR] [TestTag] Error message"))
+    org.junit.Assert.assertTrue(exportedText.contains("[SUCCESS] [TestTag] Success message"))
+
+    // Test clear logs
+    AppLogManager.clearLogs()
+    assertEquals(0, AppLogManager.logs.value.size)
+    assertEquals("No logs recorded.", AppLogManager.getAllLogsAsText())
+  }
 }

@@ -22,4 +22,15 @@
     <string name="base_canvas_label">Base (Canvas)</string>
     <string name="output_scaled_label">Output (Scaled)</string>
     <string name="fit_to_screen_label">Fit to Screen (Aspect Fill)</string>
+    <string name="logs_title">System &amp; Stream Logs</string>
+    <string name="view_logs">View Logs</string>
+    <string name="clear_logs">Clear Logs</string>
+    <string name="copy_logs">Copy Logs</string>
+    <string name="logs_copied">Logs copied to clipboard</string>
+    <string name="logs_cleared">Logs cleared</string>
+    <string name="no_logs">No logs recorded yet. Stream events and diagnostics will appear here.</string>
+    <string name="filter_all">All</string>
+    <string name="filter_errors">Errors</string>
+    <string name="filter_warnings">Warnings</string>
+    <string name="filter_info">Info</string>
 </resources>

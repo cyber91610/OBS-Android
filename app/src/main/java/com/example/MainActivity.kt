@@ -43,13 +43,17 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -66,6 +70,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -97,6 +102,9 @@ import com.example.ui.theme.StatusFinished
 import com.example.ui.theme.StatusInfo
 import com.example.ui.theme.StatusLive
 import com.example.ui.theme.StatusWarning
+import com.example.ui.LogsViewerSheet
+import com.example.AppLogManager
+import com.example.LogLevel
 
 class MainActivity : ComponentActivity() {
 
@@ -119,6 +127,7 @@ fun StreamerScreen() {
     val uiState by StreamManager.uiState.collectAsStateWithLifecycle()
 
     var showPassword by rememberSaveable { mutableStateOf(false) }
+    var showLogsSheet by rememberSaveable { mutableStateOf(false) }
 
     // Request notification permission on Android 13+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -173,6 +182,34 @@ fun StreamerScreen() {
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
                         )
+                    }
+                },
+                actions = {
+                    val logs by AppLogManager.logs.collectAsStateWithLifecycle()
+                    val hasErrors = logs.any { it.level == LogLevel.ERROR }
+
+                    IconButton(
+                        onClick = { showLogsSheet = true },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("open_logs_button")
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (hasErrors) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(8.dp)
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Terminal,
+                                contentDescription = "Open Diagnostics and Logs",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -713,29 +750,61 @@ fun StreamerScreen() {
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         )
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = "Error",
-                                tint = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = uiState.errorMessage ?: "",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { StreamManager.clearError() }) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Dismiss error",
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Error",
                                     tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = uiState.errorMessage ?: "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { StreamManager.clearError() },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Dismiss error",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showLogsSheet = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("error_view_logs_button"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Terminal,
+                                    contentDescription = "View Diagnostic Logs icon",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "View Error Logs & Diagnostics",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -832,6 +901,12 @@ fun StreamerScreen() {
                 }
             }
         }
+    }
+
+    if (showLogsSheet) {
+        LogsViewerSheet(
+            onDismissRequest = { showLogsSheet = false }
+        )
     }
 }
 

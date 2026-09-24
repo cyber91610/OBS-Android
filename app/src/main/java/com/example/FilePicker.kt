@@ -45,13 +45,16 @@ object FilePicker {
             val rawH = heightStr?.toIntOrNull() ?: 0
             val rot = rotationStr?.toIntOrNull() ?: 0
 
-            VideoMetadata(
+            val meta = VideoMetadata(
                 durationSeconds = durationMs / 1000L,
                 rawWidth = rawW,
                 rawHeight = rawH,
                 rotation = rot
             )
-        } catch (_: Exception) {
+            AppLogManager.s("FilePicker", "Extracted video metadata: ${meta.displayWidth}x${meta.displayHeight} (raw ${rawW}x${rawH}, rot ${rot}°), duration=${meta.durationSeconds}s")
+            meta
+        } catch (e: Exception) {
+            AppLogManager.e("FilePicker", "Failed to extract metadata from video: ${e.message}", e)
             VideoMetadata(0L, 0, 0, 0)
         }
     }

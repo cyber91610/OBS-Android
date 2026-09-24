@@ -32,6 +32,10 @@ object StreamManager {
     var onServiceStopRequested: (() -> Unit)? = null
 
     fun setVideo(uri: Uri, fileName: String, metadata: VideoMetadata) {
+        AppLogManager.i(
+            "FilePicker",
+            "Video selected: '$fileName' (${metadata.displayWidth}x${metadata.displayHeight}, duration=${metadata.durationSeconds}s, rotation=${metadata.rotation}°)"
+        )
         _uiState.update {
             it.copy(
                 selectedVideoUri = uri,
@@ -53,6 +57,7 @@ object StreamManager {
     }
 
     fun setLoopEnabled(enabled: Boolean) {
+        AppLogManager.i("StreamManager", "Loop mode set to: ${if (enabled) "ENABLED (Endless)" else "DISABLED (Play once)"}")
         _uiState.update { it.copy(isLoopEnabled = enabled) }
         try {
             rtmpFromFile?.setLoopMode(enabled)
@@ -60,6 +65,10 @@ object StreamManager {
     }
 
     fun setStreamProfile(profile: StreamResolutionProfile) {
+        AppLogManager.i(
+            "StreamProfile",
+            "Active profile set to: ${profile.title} (Canvas: ${profile.baseResolution}, Output: ${profile.outputResolution}, Aspect Ratio: ${profile.aspectRatio})"
+        )
         _uiState.update { it.copy(streamProfile = profile) }
     }
 
@@ -68,6 +77,9 @@ object StreamManager {
     }
 
     fun setStreamKey(key: String) {
+        if (key.length != _uiState.value.streamKey.length) {
+            AppLogManager.d("StreamKey", "Stream key length changed to ${key.length} chars")
+        }
         _uiState.update {
             it.copy(
                 streamKey = key,
@@ -77,16 +89,20 @@ object StreamManager {
     }
 
     fun clearError() {
+        AppLogManager.d("StreamManager", "Error cleared by user")
         _uiState.update { it.copy(errorMessage = null) }
     }
 
     fun requestStartStream(context: Context) {
+        AppLogManager.i("StreamManager", "User requested to start stream")
         val current = _uiState.value
         if (current.selectedVideoUri == null) {
+            val err = "Please select an MP4 video file first."
+            AppLogManager.e("StreamManager", err)
             _uiState.update {
                 it.copy(
                     status = StreamStatus.ERROR,
-                    errorMessage = "Please select an MP4 video file first."
+                    errorMessage = err
                 )
             }
             return
@@ -94,10 +110,12 @@ object StreamManager {
 
         val key = current.streamKey.trim()
         if (key.isEmpty()) {
+            val err = "Please enter your YouTube Stream Key."
+            AppLogManager.e("StreamManager", err)
             _uiState.update {
                 it.copy(
                     status = StreamStatus.ERROR,
-                    errorMessage = "Please enter your YouTube Stream Key."
+                    errorMessage = err
                 )
             }
             return
@@ -117,6 +135,7 @@ object StreamManager {
     }
 
     fun requestStopStream() {
+        AppLogManager.i("StreamManager", "User requested to stop stream")
         stopStreamInternal(finishedNaturally = false, keepError = false)
         _uiState.update {
             it.copy(
@@ -152,24 +171,29 @@ object StreamManager {
 
         val connectChecker = object : ConnectChecker {
             override fun onConnectionStarted(url: String) {
+                val masked = if (url.contains("/")) url.substringBeforeLast("/") + "/***KEY" else url
+                AppLogManager.i("RTMP", "Connecting to YouTube RTMP: $masked")
                 scope.launch {
                     _uiState.update { it.copy(status = StreamStatus.CONNECTING) }
                 }
             }
 
             override fun onConnectionSuccess() {
+                AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
                 scope.launch {
                     _uiState.update { it.copy(status = StreamStatus.LIVE, isStreaming = true) }
                 }
             }
 
             override fun onConnectionFailed(reason: String) {
+                val errMsg = "RTMP connection failed: $reason"
+                AppLogManager.e("RTMP", errMsg)
                 scope.launch {
                     _uiState.update {
                         it.copy(
                             status = StreamStatus.ERROR,
                             isStreaming = false,
-                            errorMessage = "RTMP connection failed: $reason"
+                            errorMessage = errMsg
                         )
                     }
                     stopStreamInternal(finishedNaturally = false, keepError = true)
@@ -177,13 +201,16 @@ object StreamManager {
             }
 
             override fun onDisconnect() {
+                AppLogManager.w("RTMP", "RTMP connection disconnected.")
                 scope.launch {
                     if (_uiState.value.status == StreamStatus.LIVE) {
+                        val errMsg = "Disconnected from YouTube RTMP server."
+                        AppLogManager.e("RTMP", errMsg)
                         _uiState.update {
                             it.copy(
                                 status = StreamStatus.ERROR,
                                 isStreaming = false,
-                                errorMessage = "Disconnected from YouTube RTMP server."
+                                errorMessage = errMsg
                             )
                         }
                         stopStreamInternal(finishedNaturally = false, keepError = true)
@@ -192,19 +219,23 @@ object StreamManager {
             }
 
             override fun onAuthError() {
+                val errMsg = "Stream key authentication failed. YouTube rejected your key."
+                AppLogManager.e("RTMP", errMsg)
                 scope.launch {
                     _uiState.update {
                         it.copy(
                             status = StreamStatus.ERROR,
                             isStreaming = false,
-                            errorMessage = "Stream key authentication failed. Check your key."
+                            errorMessage = errMsg
                         )
                     }
                     stopStreamInternal(finishedNaturally = false, keepError = true)
                 }
             }
 
-            override fun onAuthSuccess() {}
+            override fun onAuthSuccess() {
+                AppLogManager.s("RTMP", "Stream key authenticated successfully by YouTube server.")
+            }
 
             override fun onNewBitrate(bitrate: Long) {
                 scope.launch {
@@ -215,6 +246,7 @@ object StreamManager {
 
         val videoDecoderInterface = object : VideoDecoderInterface {
             override fun onVideoDecoderFinished() {
+                AppLogManager.i("VideoDecoder", "Video file playback reached the end.")
                 scope.launch {
                     // Video reached the end!
                     stopStreamInternal(finishedNaturally = true, keepError = false)
@@ -223,22 +255,26 @@ object StreamManager {
         }
 
         val audioDecoderInterface = object : AudioDecoderInterface {
-            override fun onAudioDecoderFinished() {}
+            override fun onAudioDecoderFinished() {
+                AppLogManager.d("AudioDecoder", "Audio file track reached the end.")
+            }
         }
 
         try {
             val state = _uiState.value
             val profile = state.streamProfile
 
-            // Resolution variables dynamically updated based on the selected profile:
-            // Profile 1: Landscape Mode (16:9 Standard) -> Base Canvas: 1920x1080, Output Scaled: 1920x1080
-            // Profile 2: Portrait Mode (9:16 Shorts)    -> Base Canvas: 1080x1920, Output Scaled: 1080x1920
             val baseCanvasWidth = profile.baseCanvasWidth
             val baseCanvasHeight = profile.baseCanvasHeight
             val outputScaledWidth = profile.outputScaledWidth
             val outputScaledHeight = profile.outputScaledHeight
             val isPortrait = profile.isPortrait
             val bitrate = 3000000 // 3.0 Mbps for crisp 1080p stream
+
+            AppLogManager.i(
+                "StreamManager",
+                "Preparing stream: Profile=${profile.title}, Base=${profile.baseResolution}, Output=${profile.outputResolution}, Bitrate=${bitrate / 1000}kbps, Loop=${state.isLoopEnabled}"
+            )
 
             val rtmp = CustomRtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
             rtmp.setLoopMode(state.isLoopEnabled)
@@ -253,12 +289,19 @@ object StreamManager {
                 isPortrait = isPortrait
             )
             val aPrep = rtmp.prepareAudio(context, uri)
+            if (!aPrep) {
+                AppLogManager.w("AudioDecoder", "Audio track preparation returned false. Stream may have no sound.")
+            } else {
+                AppLogManager.s("AudioDecoder", "Audio decoder prepared successfully.")
+            }
 
             if (!vPrep) {
+                val err = "Cannot prepare video decoder. Verify file is valid MP4 with H.264 video."
+                AppLogManager.e("VideoDecoder", err)
                 _uiState.update {
                     it.copy(
                         status = StreamStatus.ERROR,
-                        errorMessage = "Cannot prepare video decoder. Verify file is valid MP4."
+                        errorMessage = err
                     )
                 }
                 stopStreamInternal(finishedNaturally = false, keepError = true)
@@ -278,15 +321,18 @@ object StreamManager {
                 )
             }
 
+            AppLogManager.i("StreamManager", "Initiating RTMP connection to YouTube live servers...")
             rtmp.startStream(endpoint)
             rtmpFromFile = rtmp
 
             startTicker()
         } catch (e: Exception) {
+            val err = "Streaming initialization error: ${e.localizedMessage ?: "Unknown failure"}"
+            AppLogManager.e("StreamManager", err, e)
             _uiState.update {
                 it.copy(
                     status = StreamStatus.ERROR,
-                    errorMessage = "Streaming error: ${e.localizedMessage ?: "Unknown failure"}"
+                    errorMessage = err
                 )
             }
             stopStreamInternal(finishedNaturally = false, keepError = true)
@@ -313,7 +359,9 @@ object StreamManager {
 
                     // Detect loop completion: when videoTime wraps back to near 0
                     if (_uiState.value.isLoopEnabled && lastVideoTime > 2.0 && currentVideoSecs < 1.0) {
-                        _uiState.update { it.copy(loopCount = it.loopCount + 1) }
+                        val nextLoop = _uiState.value.loopCount + 1
+                        AppLogManager.s("StreamManager", "Video looped! Starting playback cycle #$nextLoop")
+                        _uiState.update { it.copy(loopCount = nextLoop) }
                     }
                     lastVideoTime = currentVideoSecs
 
@@ -332,6 +380,8 @@ object StreamManager {
     }
 
     private fun stopStreamInternal(finishedNaturally: Boolean, keepError: Boolean) {
+        val totalSecs = _uiState.value.totalStreamElapsedSeconds
+        AppLogManager.i("StreamManager", "Stream teardown: finishedNaturally=$finishedNaturally, keepError=$keepError, totalStreamed=${totalSecs}s")
         tickerJob?.cancel()
         tickerJob = null
         lastVideoTime = 0.0

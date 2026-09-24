@@ -55,11 +55,13 @@ class StreamService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        AppLogManager.i("StreamService", "Foreground service created")
         createNotificationChannel()
 
         acquireLocks()
 
         StreamManager.onServiceStopRequested = {
+            AppLogManager.i("StreamService", "Stop requested, removing notification and stopping service")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
