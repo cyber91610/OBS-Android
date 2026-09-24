@@ -7,6 +7,7 @@ enum class StreamStatus(val displayText: String) {
     PREPARING("Preparing"),
     CONNECTING("Connecting"),
     LIVE("Live"),
+    RECONNECTING("Reconnecting"),
     FINISHED("Finished"),
     ERROR("Error")
 }

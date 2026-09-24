@@ -167,7 +167,8 @@ fun StreamerScreen() {
 
     val isBusy = uiState.status == StreamStatus.CONNECTING ||
             uiState.status == StreamStatus.PREPARING ||
-            uiState.status == StreamStatus.LIVE
+            uiState.status == StreamStatus.LIVE ||
+            uiState.status == StreamStatus.RECONNECTING
 
     Scaffold(
         topBar = {
@@ -181,7 +182,7 @@ fun StreamerScreen() {
                             modifier = Modifier
                                 .size(12.dp)
                                 .clip(CircleShape)
-                                .background(if (uiState.status == StreamStatus.LIVE) StatusLive else MaterialTheme.colorScheme.primary)
+                                .background(if (uiState.status == StreamStatus.LIVE) StatusLive else if (uiState.status == StreamStatus.RECONNECTING) StatusWarning else MaterialTheme.colorScheme.primary)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -665,7 +666,7 @@ fun StreamerScreen() {
                                         .fillMaxWidth()
                                         .height(8.dp)
                                         .clip(RoundedCornerShape(4.dp)),
-                                    color = if (uiState.status == StreamStatus.LIVE) StatusLive else MaterialTheme.colorScheme.primary,
+                                    color = if (uiState.status == StreamStatus.LIVE) StatusLive else if (uiState.status == StreamStatus.RECONNECTING) StatusWarning else MaterialTheme.colorScheme.primary,
                                     trackColor = MaterialTheme.colorScheme.surface
                                 )
                             }
@@ -1076,6 +1077,7 @@ fun StatusBadge(status: StreamStatus) {
         StreamStatus.PREPARING -> StatusWarning.copy(alpha = 0.15f) to StatusWarning
         StreamStatus.CONNECTING -> StatusInfo.copy(alpha = 0.15f) to StatusInfo
         StreamStatus.LIVE -> StatusLive.copy(alpha = 0.15f) to StatusLive
+        StreamStatus.RECONNECTING -> StatusWarning.copy(alpha = 0.2f) to StatusWarning
         StreamStatus.FINISHED -> StatusFinished.copy(alpha = 0.15f) to StatusFinished
         StreamStatus.ERROR -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.error
     }
@@ -1113,10 +1115,11 @@ fun StatusBadge(status: StreamStatus) {
                         .clip(CircleShape)
                         .background(StatusLive)
                 )
-            } else if (status == StreamStatus.CONNECTING || status == StreamStatus.PREPARING) {
+            } else if (status == StreamStatus.CONNECTING || status == StreamStatus.PREPARING || status == StreamStatus.RECONNECTING) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
+                        .alpha(alphaAnim)
                         .clip(CircleShape)
                         .background(textColor)
                 )

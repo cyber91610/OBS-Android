@@ -20,6 +20,7 @@ class ExampleUnitTest {
     assertEquals("Preparing", StreamStatus.PREPARING.displayText)
     assertEquals("Connecting", StreamStatus.CONNECTING.displayText)
     assertEquals("Live", StreamStatus.LIVE.displayText)
+    assertEquals("Reconnecting", StreamStatus.RECONNECTING.displayText)
     assertEquals("Finished", StreamStatus.FINISHED.displayText)
     assertEquals("Error", StreamStatus.ERROR.displayText)
   }

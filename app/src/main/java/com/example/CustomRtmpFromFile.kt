@@ -38,6 +38,25 @@ class CustomRtmpFromFile(
         }
     })
 
+    init {
+        streamClient.setReTries(100)
+    }
+
+    fun reTry(delayMs: Long = 3000L, reason: String = "auto_reconnect"): Boolean {
+        AppLogManager.i("RTMP", "Triggering streamClient.reTry(delay=${delayMs}ms, reason='$reason')...")
+        return streamClient.reTry(delayMs, reason)
+    }
+
+    fun reConnect(delayMs: Long = 3000L) {
+        AppLogManager.i("RTMP", "Directly triggering rtmpClient.reConnect(delay=${delayMs}ms) while keeping decoders active...")
+        requestKeyFrame()
+        rtmpClient.reConnect(delayMs)
+    }
+
+    fun resetReTries(count: Int = 100) {
+        streamClient.setReTries(count)
+    }
+
     override fun setVideoCodecImp(codec: VideoCodec) {
         rtmpClient.setVideoCodec(codec)
     }

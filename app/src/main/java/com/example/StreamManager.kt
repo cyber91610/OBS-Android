@@ -27,6 +27,10 @@ object StreamManager {
 
     private var rtmpFromFile: CustomRtmpFromFile? = null
     private var tickerJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var isUserStreaming = false
+    private var reconnectAttempts = 0
+    private const val MAX_RECONNECT_ATTEMPTS = 50
     private var streamStartTime = 0L
     private var lastVideoTime = 0.0
     var onServiceStopRequested: (() -> Unit)? = null
@@ -99,6 +103,7 @@ object StreamManager {
         if (current.selectedVideoUri == null) {
             val err = "Please select an MP4 video file first."
             AppLogManager.e("StreamManager", err)
+            isUserStreaming = false
             _uiState.update {
                 it.copy(
                     status = StreamStatus.ERROR,
@@ -112,6 +117,7 @@ object StreamManager {
         if (key.isEmpty()) {
             val err = "Please enter your YouTube Stream Key."
             AppLogManager.e("StreamManager", err)
+            isUserStreaming = false
             _uiState.update {
                 it.copy(
                     status = StreamStatus.ERROR,
@@ -120,6 +126,11 @@ object StreamManager {
             }
             return
         }
+
+        isUserStreaming = true
+        reconnectAttempts = 0
+        reconnectJob?.cancel()
+        reconnectJob = null
 
         _uiState.update {
             it.copy(
@@ -136,6 +147,10 @@ object StreamManager {
 
     fun requestStopStream() {
         AppLogManager.i("StreamManager", "User requested to stop stream")
+        isUserStreaming = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
         stopStreamInternal(finishedNaturally = false, keepError = false)
         _uiState.update {
             it.copy(
@@ -174,38 +189,64 @@ object StreamManager {
                 val masked = if (url.contains("/")) url.substringBeforeLast("/") + "/***KEY" else url
                 AppLogManager.i("RTMP", "Connecting to YouTube RTMP: $masked")
                 scope.launch {
-                    _uiState.update { it.copy(status = StreamStatus.CONNECTING) }
+                    _uiState.update {
+                        it.copy(status = if (reconnectAttempts > 0) StreamStatus.RECONNECTING else StreamStatus.CONNECTING)
+                    }
                 }
             }
 
             override fun onConnectionSuccess() {
-                AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
+                val wasReconnecting = reconnectAttempts > 0
+                reconnectAttempts = 0
+                reconnectJob?.cancel()
+                reconnectJob = null
+                rtmpFromFile?.resetReTries(100)
+                if (wasReconnecting) {
+                    AppLogManager.s("RTMP", "YouTube RTMP reconnected successfully! Resumed live broadcast seamlessly.")
+                } else {
+                    AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
+                }
                 scope.launch {
-                    _uiState.update { it.copy(status = StreamStatus.LIVE, isStreaming = true) }
+                    _uiState.update {
+                        it.copy(
+                            status = StreamStatus.LIVE,
+                            isStreaming = true,
+                            errorMessage = null
+                        )
+                    }
                 }
             }
 
             override fun onConnectionFailed(reason: String) {
                 val errMsg = "RTMP connection failed: $reason"
                 AppLogManager.e("RTMP", errMsg)
-                scope.launch {
-                    _uiState.update {
-                        it.copy(
-                            status = StreamStatus.ERROR,
-                            isStreaming = false,
-                            errorMessage = errMsg
-                        )
+                if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    triggerAutoReconnect(reason)
+                } else {
+                    AppLogManager.e("RTMP", "Terminating stream: isUserStreaming=$isUserStreaming, attempts=$reconnectAttempts/$MAX_RECONNECT_ATTEMPTS")
+                    scope.launch {
+                        _uiState.update {
+                            it.copy(
+                                status = StreamStatus.ERROR,
+                                isStreaming = false,
+                                errorMessage = errMsg
+                            )
+                        }
+                        stopStreamInternal(finishedNaturally = false, keepError = true)
                     }
-                    stopStreamInternal(finishedNaturally = false, keepError = true)
                 }
             }
 
             override fun onDisconnect() {
                 AppLogManager.w("RTMP", "RTMP connection disconnected.")
-                scope.launch {
-                    if (_uiState.value.status == StreamStatus.LIVE) {
-                        val errMsg = "Disconnected from YouTube RTMP server."
-                        AppLogManager.e("RTMP", errMsg)
+                if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    triggerAutoReconnect("Server disconnected socket")
+                } else if (!isUserStreaming) {
+                    AppLogManager.i("RTMP", "Disconnected after user stop request.")
+                } else {
+                    val errMsg = "Disconnected from YouTube RTMP server. Reconnect attempts exhausted."
+                    AppLogManager.e("RTMP", errMsg)
+                    scope.launch {
                         _uiState.update {
                             it.copy(
                                 status = StreamStatus.ERROR,
@@ -221,6 +262,9 @@ object StreamManager {
             override fun onAuthError() {
                 val errMsg = "Stream key authentication failed. YouTube rejected your key."
                 AppLogManager.e("RTMP", errMsg)
+                isUserStreaming = false
+                reconnectJob?.cancel()
+                reconnectJob = null
                 scope.launch {
                     _uiState.update {
                         it.copy(
@@ -248,6 +292,9 @@ object StreamManager {
             override fun onVideoDecoderFinished() {
                 AppLogManager.i("VideoDecoder", "Video file playback reached the end.")
                 scope.launch {
+                    isUserStreaming = false
+                    reconnectJob?.cancel()
+                    reconnectJob = null
                     // Video reached the end!
                     stopStreamInternal(finishedNaturally = true, keepError = false)
                 }
@@ -339,6 +386,57 @@ object StreamManager {
         }
     }
 
+    private fun triggerAutoReconnect(reason: String) {
+        if (!isUserStreaming) return
+        if (reconnectJob?.isActive == true) {
+            AppLogManager.d("RTMP", "Auto-reconnect already scheduled/running, skipping duplicate trigger.")
+            return
+        }
+        reconnectAttempts++
+        val waitSecs = 3
+        val retryMsg = "Network interrupted ($reason). Auto-reconnecting in ${waitSecs}s (Attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)... Active video/audio decoders preserved."
+        AppLogManager.w("RTMP", retryMsg)
+
+        scope.launch {
+            _uiState.update {
+                it.copy(
+                    status = StreamStatus.RECONNECTING,
+                    errorMessage = retryMsg
+                )
+            }
+        }
+
+        reconnectJob = scope.launch {
+            val rtmp = rtmpFromFile
+            if (rtmp == null || !isUserStreaming) return@launch
+
+            val retryInitiated = try {
+                rtmp.reTry(delayMs = waitSecs * 1000L, reason = reason)
+            } catch (e: Exception) {
+                AppLogManager.w("RTMP", "rtmp.reTry threw exception: ${e.message}")
+                false
+            }
+
+            if (!retryInitiated && isUserStreaming) {
+                AppLogManager.i("RTMP", "streamClient.reTry returned false; directly triggering rtmp.reConnect(${waitSecs * 1000L}ms)...")
+                try {
+                    rtmp.reConnect(delayMs = waitSecs * 1000L)
+                } catch (e: Exception) {
+                    AppLogManager.e("RTMP", "Direct reConnect exception: ${e.message}", e)
+                    delay(waitSecs * 1000L)
+                    if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectJob = null
+                        triggerAutoReconnect("Retry exception: ${e.message}")
+                        return@launch
+                    }
+                }
+            }
+
+            delay(waitSecs * 1000L + 1000L)
+            reconnectJob = null
+        }
+    }
+
     private fun startTicker() {
         tickerJob?.cancel()
         streamStartTime = System.currentTimeMillis()
@@ -347,7 +445,7 @@ object StreamManager {
             while (isActive) {
                 delay(500)
                 val rtmp = rtmpFromFile
-                if (rtmp != null && (rtmp.isStreaming || _uiState.value.status == StreamStatus.LIVE)) {
+                if (rtmp != null && (rtmp.isStreaming || _uiState.value.status == StreamStatus.LIVE || _uiState.value.status == StreamStatus.RECONNECTING)) {
                     val currentVideoSecs = rtmp.videoTime
                     val elapsed = currentVideoSecs.toLong()
                     val total = if (rtmp.videoDuration > 0) {
@@ -382,6 +480,10 @@ object StreamManager {
     private fun stopStreamInternal(finishedNaturally: Boolean, keepError: Boolean) {
         val totalSecs = _uiState.value.totalStreamElapsedSeconds
         AppLogManager.i("StreamManager", "Stream teardown: finishedNaturally=$finishedNaturally, keepError=$keepError, totalStreamed=${totalSecs}s")
+        isUserStreaming = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
         tickerJob?.cancel()
         tickerJob = null
         lastVideoTime = 0.0

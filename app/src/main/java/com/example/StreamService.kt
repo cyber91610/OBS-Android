@@ -73,18 +73,25 @@ class StreamService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 StreamManager.requestStopStream()
+                releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_START -> {
+                acquireLocks()
                 val notification = buildNotification("Initializing stream...")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    } else {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    }
                     ServiceCompat.startForeground(
                         this,
                         NOTIFICATION_ID,
                         notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                        foregroundType
                     )
                 } else {
                     startForeground(NOTIFICATION_ID, notification)
@@ -100,7 +107,7 @@ class StreamService : Service() {
         stateObserverJob?.cancel()
         stateObserverJob = serviceScope.launch {
             StreamManager.uiState.collectLatest { state ->
-                if (state.isStreaming || state.status == StreamStatus.LIVE || state.status == StreamStatus.CONNECTING) {
+                if (state.isStreaming || state.status == StreamStatus.LIVE || state.status == StreamStatus.CONNECTING || state.status == StreamStatus.RECONNECTING) {
                     val statusText = when (state.status) {
                         StreamStatus.LIVE -> {
                             val elapsed = FilePicker.formatTime(state.elapsedTimeSeconds)
@@ -113,6 +120,7 @@ class StreamService : Service() {
                             }
                         }
                         StreamStatus.CONNECTING -> "Connecting to YouTube..."
+                        StreamStatus.RECONNECTING -> "Reconnecting to YouTube..."
                         StreamStatus.PREPARING -> "Preparing video encoder..."
                         else -> state.status.displayText
                     }
@@ -175,41 +183,69 @@ class StreamService : Service() {
 
     private fun acquireLocks() {
         try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "YouTubeStreamer::StreamWakeLock"
-            ).apply {
-                setReferenceCounted(false)
-                acquire(4 * 60 * 60 * 1000L) // 4 hours maximum timeout
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = powerManager?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "YouTubeStreamer::StreamWakeLock"
+                )?.apply {
+                    setReferenceCounted(false)
+                }
             }
-        } catch (_: Exception) {}
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire()
+                AppLogManager.s("StreamService", "PowerManager.WakeLock (PARTIAL_WAKE_LOCK) acquired successfully to prevent CPU sleep")
+            }
+        } catch (e: Exception) {
+            AppLogManager.e("StreamService", "Failed to acquire WakeLock: ${e.message}", e)
+        }
 
         try {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "YouTubeStreamer::StreamWifiLock"
-            ).apply {
-                setReferenceCounted(false)
-                acquire()
+            if (wifiLock == null) {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                wifiLock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    wifiManager?.createWifiLock(
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+                        "YouTubeStreamer::StreamWifiLock"
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    wifiManager?.createWifiLock(
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                        "YouTubeStreamer::StreamWifiLock"
+                    )
+                }?.apply {
+                    setReferenceCounted(false)
+                }
             }
-        } catch (_: Exception) {}
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+                AppLogManager.s("StreamService", "WifiManager.WifiLock acquired successfully to keep Wi-Fi active during stream")
+            }
+        } catch (e: Exception) {
+            AppLogManager.e("StreamService", "Failed to acquire WifiLock: ${e.message}", e)
+        }
     }
 
     private fun releaseLocks() {
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
+                AppLogManager.d("StreamService", "PowerManager.WakeLock released")
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogManager.w("StreamService", "Exception releasing WakeLock: ${e.message}")
+        }
         wakeLock = null
 
         try {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
+                AppLogManager.d("StreamService", "WifiManager.WifiLock released")
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogManager.w("StreamService", "Exception releasing WifiLock: ${e.message}")
+        }
         wifiLock = null
     }
 
