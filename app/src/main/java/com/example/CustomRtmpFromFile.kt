@@ -42,75 +42,16 @@ class CustomRtmpFromFile(
         }
     })
 
+    private var initialVideoBasePts = -1L
+    private var initialAudioBasePts = -1L
+    private var videoPtsOffset = 0L
+    private var audioPtsOffset = 0L
+    private var lastSentVideoPts = 0L
+    private var lastSentAudioPts = 0L
+
     private var pauseStartTimeNs = 0L
     @Volatile
     private var decodersPaused = false
-    @Volatile
-    private var isAfterReconnect = false
-    private var lastSentVideoTimestampMs = 0L
-    private var lastSentAudioTimestampMs = 0L
-
-    fun markReconnect() {
-        isAfterReconnect = true
-        AppLogManager.i("StreamManager", "Marked CustomRtmpFromFile for timestamp continuity after reconnect.")
-    }
-
-    private fun captureLastTimestamps() {
-        try {
-            val rtmpSenderField = rtmpClient::class.java.declaredFields.firstOrNull { 
-                it.name.contains("sender", ignoreCase = true) || it.type.name.contains("Sender") 
-            } ?: return
-            rtmpSenderField.isAccessible = true
-            val rtmpSender = rtmpSenderField.get(rtmpClient) ?: return
-            val senderClass = rtmpSender::class.java
-
-            for (field in senderClass.declaredFields) {
-                field.isAccessible = true
-                val name = field.name.lowercase()
-                if (field.type == Long::class.java || field.type == Long::class.javaPrimitiveType) {
-                    val valLong = field.getLong(rtmpSender)
-                    if (name.contains("videotimestamp") || name.equals("videotimestamp", ignoreCase = true)) {
-                        lastSentVideoTimestampMs = valLong
-                    } else if (name.contains("audiotimestamp") || name.equals("audiotimestamp", ignoreCase = true)) {
-                        lastSentAudioTimestampMs = valLong
-                    }
-                }
-            }
-            AppLogManager.i("RtmpTimestampFix", "Captured last sent timestamps before disconnect: video=${lastSentVideoTimestampMs}ms, audio=${lastSentAudioTimestampMs}ms")
-        } catch (e: Exception) {
-            AppLogManager.w("RtmpTimestampFix", "Error capturing last timestamps: ${e.message}")
-        }
-    }
-
-    private fun adjustRtmpSenderTimestamp(isAudio: Boolean, firstPtsUs: Long) {
-        try {
-            val rtmpSenderField = rtmpClient::class.java.declaredFields.firstOrNull { 
-                it.name.contains("sender", ignoreCase = true) || it.type.name.contains("Sender") 
-            } ?: return
-            rtmpSenderField.isAccessible = true
-            val rtmpSender = rtmpSenderField.get(rtmpClient) ?: return
-
-            val senderClass = rtmpSender::class.java
-            val startTsFieldName = if (isAudio) "startAudioTimestamp" else "startVideoTimestamp"
-            val lastTsMs = if (isAudio) lastSentAudioTimestampMs else lastSentVideoTimestampMs
-            val intervalMs = if (isAudio) 23L else 33L // standard frame interval
-
-            val targetStartTs = firstPtsUs - ((lastTsMs + intervalMs) * 1000L)
-
-            for (field in senderClass.declaredFields) {
-                field.isAccessible = true
-                val name = field.name
-                if (name.equals(startTsFieldName, ignoreCase = true) || (name.contains(if (isAudio) "audio" else "video", ignoreCase = true) && name.contains("start", ignoreCase = true))) {
-                    if (field.type == Long::class.java || field.type == Long::class.javaPrimitiveType) {
-                        field.setLong(rtmpSender, targetStartTs)
-                        AppLogManager.s("RtmpTimestampFix", "Successfully adjusted ${field.name} to $targetStartTs (firstPts=$firstPtsUs, lastTsMs=$lastTsMs)")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            AppLogManager.e("RtmpTimestampFix", "Failed to adjust RtmpSender timestamp: ${e.message}", e)
-        }
-    }
 
     private val videoDecoderField by lazy {
         try {
@@ -152,7 +93,6 @@ class CustomRtmpFromFile(
         if (decodersPaused) return
         decodersPaused = true
         pauseStartTimeNs = System.nanoTime()
-        captureLastTimestamps()
         AppLogManager.i("StreamManager", "Pausing MP4 file decoders during disconnect to prevent A/V buffer misalignment...")
         try {
             val vDec = videoDecoderField?.get(this) as? VideoDecoder
@@ -277,26 +217,78 @@ class CustomRtmpFromFile(
     }
 
     override fun getH264DataRtp(h264Buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        if (isAfterReconnect) {
-            try {
-                adjustRtmpSenderTimestamp(isAudio = false, firstPtsUs = info.presentationTimeUs)
-            } catch (e: Exception) {
-                AppLogManager.w("RtmpTimestampFix", "Error adjusting video start timestamp: ${e.message}")
+        val originalPts = info.presentationTimeUs
+        if (initialVideoBasePts == -1L) {
+            initialVideoBasePts = originalPts
+        } else if (originalPts < lastSentVideoPts) {
+            val delta = lastSentVideoPts - originalPts + 33333L
+            videoPtsOffset += delta
+        } else if (originalPts - lastSentVideoPts > 2_000_000L) {
+            val gap = originalPts - lastSentVideoPts - 33333L
+            if (gap > 0) {
+                videoPtsOffset -= gap
             }
         }
-        rtmpClient.sendVideo(h264Buffer, info)
+        lastSentVideoPts = originalPts
+
+        val adjustedPts = originalPts + videoPtsOffset
+        val adjustedInfo = MediaCodec.BufferInfo().apply {
+            set(
+                info.offset,
+                info.size,
+                adjustedPts,
+                info.flags
+            )
+        }
+
+        forceRtmpSenderStartTimestamp(isAudio = false, basePts = initialVideoBasePts)
+        rtmpClient.sendVideo(h264Buffer, adjustedInfo)
     }
 
     override fun getAacDataRtp(aacBuffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        if (isAfterReconnect) {
-            isAfterReconnect = false // Reset after both video and audio first packets are adjusted
-            try {
-                adjustRtmpSenderTimestamp(isAudio = true, firstPtsUs = info.presentationTimeUs)
-            } catch (e: Exception) {
-                AppLogManager.w("RtmpTimestampFix", "Error adjusting audio start timestamp: ${e.message}")
-            }
+        val originalPts = info.presentationTimeUs
+        if (initialAudioBasePts == -1L) {
+            initialAudioBasePts = originalPts
+        } else if (originalPts < lastSentAudioPts) {
+            val delta = lastSentAudioPts - originalPts + 23219L
+            audioPtsOffset += delta
         }
-        rtmpClient.sendAudio(aacBuffer, info)
+        lastSentAudioPts = originalPts
+
+        val adjustedPts = originalPts + audioPtsOffset
+        val adjustedInfo = MediaCodec.BufferInfo().apply {
+            set(
+                info.offset,
+                info.size,
+                adjustedPts,
+                info.flags
+            )
+        }
+
+        forceRtmpSenderStartTimestamp(isAudio = true, basePts = initialAudioBasePts)
+        rtmpClient.sendAudio(aacBuffer, adjustedInfo)
+    }
+
+    private fun forceRtmpSenderStartTimestamp(isAudio: Boolean, basePts: Long) {
+        try {
+            val rtmpSenderField = rtmpClient::class.java.declaredFields.firstOrNull { 
+                it.name.contains("sender", ignoreCase = true) || it.type.name.contains("Sender") 
+            } ?: return
+            rtmpSenderField.isAccessible = true
+            val rtmpSender = rtmpSenderField.get(rtmpClient) ?: return
+            val senderClass = rtmpSender::class.java
+            val startTsFieldName = if (isAudio) "startAudioTimestamp" else "startVideoTimestamp"
+
+            for (field in senderClass.declaredFields) {
+                field.isAccessible = true
+                val name = field.name
+                if (name.equals(startTsFieldName, ignoreCase = true) || (name.contains(if (isAudio) "audio" else "video", ignoreCase = true) && name.contains("start", ignoreCase = true))) {
+                    if (field.type == Long::class.java || field.type == Long::class.javaPrimitiveType) {
+                        field.setLong(rtmpSender, basePts)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     /**

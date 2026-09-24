@@ -203,7 +203,6 @@ object StreamManager {
                 rtmpFromFile?.resetReTries(100)
                 if (wasReconnecting) {
                     rtmpFromFile?.resumeDecoders()
-                    rtmpFromFile?.markReconnect()
                     AppLogManager.s("RTMP", "YouTube RTMP reconnected successfully! Resumed live broadcast and synced A/V decoders.")
                 } else {
                     AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
