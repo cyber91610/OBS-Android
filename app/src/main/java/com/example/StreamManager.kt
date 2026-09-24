@@ -196,13 +196,14 @@ object StreamManager {
             }
 
             override fun onConnectionSuccess() {
-                val wasReconnecting = reconnectAttempts > 0
+                val wasReconnecting = reconnectAttempts > 0 || (rtmpFromFile?.isDecodersPaused() == true)
                 reconnectAttempts = 0
                 reconnectJob?.cancel()
                 reconnectJob = null
                 rtmpFromFile?.resetReTries(100)
                 if (wasReconnecting) {
-                    AppLogManager.s("RTMP", "YouTube RTMP reconnected successfully! Resumed live broadcast seamlessly.")
+                    rtmpFromFile?.resumeDecoders()
+                    AppLogManager.s("RTMP", "YouTube RTMP reconnected successfully! Resumed live broadcast and synced A/V decoders.")
                 } else {
                     AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
                 }
@@ -221,6 +222,7 @@ object StreamManager {
                 val errMsg = "RTMP connection failed: $reason"
                 AppLogManager.e("RTMP", errMsg)
                 if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    rtmpFromFile?.pauseDecoders()
                     triggerAutoReconnect(reason)
                 } else {
                     AppLogManager.e("RTMP", "Terminating stream: isUserStreaming=$isUserStreaming, attempts=$reconnectAttempts/$MAX_RECONNECT_ATTEMPTS")
@@ -240,6 +242,7 @@ object StreamManager {
             override fun onDisconnect() {
                 AppLogManager.w("RTMP", "RTMP connection disconnected.")
                 if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    rtmpFromFile?.pauseDecoders()
                     triggerAutoReconnect("Server disconnected socket")
                 } else if (!isUserStreaming) {
                     AppLogManager.i("RTMP", "Disconnected after user stop request.")
@@ -388,13 +391,15 @@ object StreamManager {
 
     private fun triggerAutoReconnect(reason: String) {
         if (!isUserStreaming) return
+        // Explicitly ensure MP4 decoders are paused before starting reconnect loop
+        rtmpFromFile?.pauseDecoders()
         if (reconnectJob?.isActive == true) {
             AppLogManager.d("RTMP", "Auto-reconnect already scheduled/running, skipping duplicate trigger.")
             return
         }
         reconnectAttempts++
-        val waitSecs = 3
-        val retryMsg = "Network interrupted ($reason). Auto-reconnecting in ${waitSecs}s (Attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)... Active video/audio decoders preserved."
+        val waitSecs = 1
+        val retryMsg = "Network interrupted ($reason). Auto-reconnecting in ${waitSecs}s (Attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)... Decoders paused to preserve A/V sync."
         AppLogManager.w("RTMP", retryMsg)
 
         scope.launch {
@@ -432,7 +437,7 @@ object StreamManager {
                 }
             }
 
-            delay(waitSecs * 1000L + 1000L)
+            delay(waitSecs * 1000L + 500L)
             reconnectJob = null
         }
     }

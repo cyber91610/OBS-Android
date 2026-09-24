@@ -6,7 +6,10 @@ import android.net.Uri
 import com.pedro.common.AudioCodec
 import com.pedro.common.ConnectChecker
 import com.pedro.common.VideoCodec
+import com.pedro.encoder.input.decoder.AudioDecoder
 import com.pedro.encoder.input.decoder.AudioDecoderInterface
+import com.pedro.encoder.input.decoder.BaseDecoder
+import com.pedro.encoder.input.decoder.VideoDecoder
 import com.pedro.encoder.input.decoder.VideoDecoderInterface
 import com.pedro.encoder.utils.gl.AspectRatioMode
 import com.pedro.encoder.video.FormatVideoEncoder
@@ -18,6 +21,7 @@ import com.pedro.library.view.GlStreamInterface
 import com.pedro.library.view.OrientationForced
 import com.pedro.rtmp.rtmp.RtmpClient
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Custom implementation extending [FromFileBase] allowing exact control over
@@ -38,16 +42,129 @@ class CustomRtmpFromFile(
         }
     })
 
+    private var pauseStartTimeNs = 0L
+    @Volatile
+    private var decodersPaused = false
+
+    private val videoDecoderField by lazy {
+        try {
+            FromFileBase::class.java.getDeclaredField("videoDecoder").apply { isAccessible = true }
+        } catch (_: Exception) { null }
+    }
+
+    private val audioDecoderField by lazy {
+        try {
+            FromFileBase::class.java.getDeclaredField("audioDecoder").apply { isAccessible = true }
+        } catch (_: Exception) { null }
+    }
+
+    private val baseDecoderPauseField by lazy {
+        try {
+            BaseDecoder::class.java.getDeclaredField("pause").apply { isAccessible = true }
+        } catch (_: Exception) { null }
+    }
+
+    private val baseDecoderSyncField by lazy {
+        try {
+            BaseDecoder::class.java.getDeclaredField("sync").apply { isAccessible = true }
+        } catch (_: Exception) { null }
+    }
+
+    private val baseDecoderStartTsField by lazy {
+        try {
+            BaseDecoder::class.java.getDeclaredField("startTs").apply { isAccessible = true }
+        } catch (_: Exception) { null }
+    }
+
     init {
         streamClient.setReTries(100)
     }
 
-    fun reTry(delayMs: Long = 3000L, reason: String = "auto_reconnect"): Boolean {
+    fun isDecodersPaused(): Boolean = decodersPaused
+
+    fun pauseDecoders() {
+        if (decodersPaused) return
+        decodersPaused = true
+        pauseStartTimeNs = System.nanoTime()
+        AppLogManager.i("StreamManager", "Pausing MP4 file decoders during disconnect to prevent A/V buffer misalignment...")
+        try {
+            val vDec = videoDecoderField?.get(this) as? VideoDecoder
+            vDec?.pauseRender()
+
+            val aDec = audioDecoderField?.get(this) as? AudioDecoder
+            if (aDec != null) {
+                val sync = baseDecoderSyncField?.get(aDec)
+                val pause = baseDecoderPauseField?.get(aDec) as? AtomicBoolean
+                if (sync != null && pause != null) {
+                    synchronized(sync) {
+                        pause.set(true)
+                    }
+                }
+            }
+            AppLogManager.s("StreamManager", "File decoders paused (video=${String.format(java.util.Locale.US, "%.1f", videoTime)}s, audio=${String.format(java.util.Locale.US, "%.1f", audioTime)}s).")
+        } catch (e: Exception) {
+            AppLogManager.w("StreamManager", "Error pausing decoders: ${e.message}")
+        }
+    }
+
+    fun resumeDecoders() {
+        if (!decodersPaused && pauseStartTimeNs == 0L) return
+        val pauseDurationMicros = if (pauseStartTimeNs > 0L) (System.nanoTime() - pauseStartTimeNs) / 1000L else 0L
+        decodersPaused = false
+        pauseStartTimeNs = 0L
+        AppLogManager.i("StreamManager", "Resuming MP4 file decoders after reconnect (network down for ${pauseDurationMicros / 1000L}ms)...")
+        try {
+            val vDec = videoDecoderField?.get(this) as? VideoDecoder
+            val aDec = audioDecoderField?.get(this) as? AudioDecoder
+
+            if (pauseDurationMicros > 0L) {
+                adjustStartTs(vDec, pauseDurationMicros)
+                adjustStartTs(aDec, pauseDurationMicros)
+            }
+
+            vDec?.resumeRender()
+
+            if (aDec != null) {
+                val sync = baseDecoderSyncField?.get(aDec)
+                val pause = baseDecoderPauseField?.get(aDec) as? AtomicBoolean
+                if (sync != null && pause != null) {
+                    synchronized(sync) {
+                        pause.set(false)
+                    }
+                }
+            }
+
+            // Resynchronize audio decoder to video timeline
+            try {
+                reSyncFile()
+            } catch (_: Exception) {}
+
+            requestKeyFrame()
+            AppLogManager.s("StreamManager", "File decoders resumed and A/V sync restored at video=${String.format(java.util.Locale.US, "%.1f", videoTime)}s.")
+        } catch (e: Exception) {
+            AppLogManager.w("StreamManager", "Error resuming decoders: ${e.message}")
+        }
+    }
+
+    private fun adjustStartTs(decoder: Any?, deltaMicros: Long) {
+        if (decoder == null || deltaMicros <= 0L) return
+        try {
+            val startTsField = baseDecoderStartTsField ?: return
+            val currentStartTs = startTsField.getLong(decoder)
+            if (currentStartTs > 0L) {
+                startTsField.setLong(decoder, currentStartTs + deltaMicros)
+            }
+        } catch (e: Exception) {
+            AppLogManager.d("StreamManager", "adjustStartTs ignored: ${e.message}")
+        }
+    }
+
+    fun reTry(delayMs: Long = 1000L, reason: String = "auto_reconnect"): Boolean {
         AppLogManager.i("RTMP", "Triggering streamClient.reTry(delay=${delayMs}ms, reason='$reason')...")
         return streamClient.reTry(delayMs, reason)
     }
 
-    fun reConnect(delayMs: Long = 3000L) {
+    fun reConnect(delayMs: Long = 1000L) {
         AppLogManager.i("RTMP", "Directly triggering rtmpClient.reConnect(delay=${delayMs}ms) while keeping decoders active...")
         requestKeyFrame()
         rtmpClient.reConnect(delayMs)

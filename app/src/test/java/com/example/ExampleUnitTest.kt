@@ -143,4 +143,21 @@ class ExampleUnitTest {
     assertEquals(0, AppLogManager.logs.value.size)
     assertEquals("No logs recorded.", AppLogManager.getAllLogsAsText())
   }
+
+  @Test
+  fun testDecoderReflectionForPauseResume() {
+    val fromFileBaseClass = com.pedro.library.base.FromFileBase::class.java
+    val vField = fromFileBaseClass.getDeclaredField("videoDecoder").apply { isAccessible = true }
+    val aField = fromFileBaseClass.getDeclaredField("audioDecoder").apply { isAccessible = true }
+    assertNotNull(vField)
+    assertNotNull(aField)
+
+    val baseDecoderClass = com.pedro.encoder.input.decoder.BaseDecoder::class.java
+    val pauseField = baseDecoderClass.getDeclaredField("pause").apply { isAccessible = true }
+    val syncField = baseDecoderClass.getDeclaredField("sync").apply { isAccessible = true }
+    val startTsField = baseDecoderClass.getDeclaredField("startTs").apply { isAccessible = true }
+    assertNotNull(pauseField)
+    assertNotNull(syncField)
+    assertNotNull(startTsField)
+  }
 }
