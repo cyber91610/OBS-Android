@@ -42,12 +42,16 @@ class CustomRtmpFromFile(
         }
     })
 
-    private var initialVideoBasePts = -1L
-    private var initialAudioBasePts = -1L
-    private var videoPtsOffset = 0L
-    private var audioPtsOffset = 0L
-    private var lastSentVideoPts = 0L
-    private var lastSentAudioPts = 0L
+    private var lastSentVideoTime = 0L
+    private var lastSentAudioTime = 0L
+    private var videoTimeOffset = 0L
+    private var audioTimeOffset = 0L
+
+    fun markReconnect() {
+        videoTimeOffset += lastSentVideoTime
+        audioTimeOffset += lastSentAudioTime
+        AppLogManager.i("StreamManager", "Reconnect marked: videoTimeOffset=$videoTimeOffset us, audioTimeOffset=$audioTimeOffset us (lastSentVideoTime=$lastSentVideoTime, lastSentAudioTime=$lastSentAudioTime)")
+    }
 
     private var pauseStartTimeNs = 0L
     @Volatile
@@ -217,21 +221,8 @@ class CustomRtmpFromFile(
     }
 
     override fun getH264DataRtp(h264Buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        val originalPts = info.presentationTimeUs
-        if (initialVideoBasePts == -1L) {
-            initialVideoBasePts = originalPts
-        } else if (originalPts < lastSentVideoPts) {
-            val delta = lastSentVideoPts - originalPts + 33333L
-            videoPtsOffset += delta
-        } else if (originalPts - lastSentVideoPts > 2_000_000L) {
-            val gap = originalPts - lastSentVideoPts - 33333L
-            if (gap > 0) {
-                videoPtsOffset -= gap
-            }
-        }
-        lastSentVideoPts = originalPts
-
-        val adjustedPts = originalPts + videoPtsOffset
+        lastSentVideoTime = info.presentationTimeUs
+        val adjustedPts = info.presentationTimeUs + videoTimeOffset
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
@@ -240,22 +231,12 @@ class CustomRtmpFromFile(
                 info.flags
             )
         }
-
-        forceRtmpSenderStartTimestamp(isAudio = false, basePts = initialVideoBasePts)
         rtmpClient.sendVideo(h264Buffer, adjustedInfo)
     }
 
     override fun getAacDataRtp(aacBuffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        val originalPts = info.presentationTimeUs
-        if (initialAudioBasePts == -1L) {
-            initialAudioBasePts = originalPts
-        } else if (originalPts < lastSentAudioPts) {
-            val delta = lastSentAudioPts - originalPts + 23219L
-            audioPtsOffset += delta
-        }
-        lastSentAudioPts = originalPts
-
-        val adjustedPts = originalPts + audioPtsOffset
+        lastSentAudioTime = info.presentationTimeUs
+        val adjustedPts = info.presentationTimeUs + audioTimeOffset
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
@@ -264,31 +245,7 @@ class CustomRtmpFromFile(
                 info.flags
             )
         }
-
-        forceRtmpSenderStartTimestamp(isAudio = true, basePts = initialAudioBasePts)
         rtmpClient.sendAudio(aacBuffer, adjustedInfo)
-    }
-
-    private fun forceRtmpSenderStartTimestamp(isAudio: Boolean, basePts: Long) {
-        try {
-            val rtmpSenderField = rtmpClient::class.java.declaredFields.firstOrNull { 
-                it.name.contains("sender", ignoreCase = true) || it.type.name.contains("Sender") 
-            } ?: return
-            rtmpSenderField.isAccessible = true
-            val rtmpSender = rtmpSenderField.get(rtmpClient) ?: return
-            val senderClass = rtmpSender::class.java
-            val startTsFieldName = if (isAudio) "startAudioTimestamp" else "startVideoTimestamp"
-
-            for (field in senderClass.declaredFields) {
-                field.isAccessible = true
-                val name = field.name
-                if (name.equals(startTsFieldName, ignoreCase = true) || (name.contains(if (isAudio) "audio" else "video", ignoreCase = true) && name.contains("start", ignoreCase = true))) {
-                    if (field.type == Long::class.java || field.type == Long::class.javaPrimitiveType) {
-                        field.setLong(rtmpSender, basePts)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
     }
 
     /**
