@@ -60,8 +60,12 @@ class StreamService : Service() {
 
         acquireLocks()
 
+        val initialNotification = buildNotification("Initializing stream service...")
+        startInForeground(initialNotification)
+
         StreamManager.onServiceStopRequested = {
             AppLogManager.i("StreamService", "Stop requested, removing notification and stopping service")
+            releaseLocks()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -80,27 +84,27 @@ class StreamService : Service() {
             }
             ACTION_START -> {
                 acquireLocks()
-                val notification = buildNotification("Initializing stream...")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                    } else {
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    }
-                    ServiceCompat.startForeground(
-                        this,
-                        NOTIFICATION_ID,
-                        notification,
-                        foregroundType
-                    )
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
-                }
-
+                val notification = buildNotification("Starting YouTube live broadcast...")
+                startInForeground(notification)
                 StreamManager.startInternal(applicationContext)
+                return START_STICKY
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun startInForeground(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                foregroundType
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun observeStreamState() {
@@ -163,6 +167,8 @@ class StreamService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 

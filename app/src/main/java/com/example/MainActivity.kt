@@ -123,6 +123,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onPause() {
+        super.onPause()
+        AppLogManager.d("MainActivity", "Activity onPause: user navigated away, streaming remains active in foreground service")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AppLogManager.d("MainActivity", "Activity onStop: UI hidden, streaming strictly preserved in background")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        AppLogManager.d("MainActivity", "Activity onDestroy: UI destroyed, background stream service unaffected")
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

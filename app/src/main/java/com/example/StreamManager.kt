@@ -142,7 +142,7 @@ object StreamManager {
             )
         }
 
-        StreamService.start(context)
+        StreamService.start(context.applicationContext)
     }
 
     fun requestStopStream() {
@@ -327,19 +327,20 @@ object StreamManager {
                 "Preparing stream: Profile=${profile.title}, Base=${profile.baseResolution}, Output=${profile.outputResolution}, Bitrate=${bitrate / 1000}kbps, Loop=${state.isLoopEnabled}"
             )
 
-            val rtmp = CustomRtmpFromFile(context, connectChecker, videoDecoderInterface, audioDecoderInterface)
+            val appContext = context.applicationContext
+            val rtmp = CustomRtmpFromFile(appContext, connectChecker, videoDecoderInterface, audioDecoderInterface)
             rtmp.setLoopMode(state.isLoopEnabled)
 
             // Prepares video decoder, sets native output resolution, and configures GL Fit-to-Screen aspect ratio scaling
             val vPrep = rtmp.prepareVideoWithProfile(
-                context = context,
+                context = appContext,
                 uri = uri,
                 targetWidth = outputScaledWidth,
                 targetHeight = outputScaledHeight,
                 bitrate = bitrate,
                 isPortrait = isPortrait
             )
-            val aPrep = rtmp.prepareAudio(context, uri)
+            val aPrep = rtmp.prepareAudio(appContext, uri)
             if (!aPrep) {
                 AppLogManager.w("AudioDecoder", "Audio track preparation returned false. Stream may have no sound.")
             } else {

@@ -33,7 +33,7 @@ class CustomRtmpFromFile(
     connectChecker: ConnectChecker,
     videoDecoderInterface: VideoDecoderInterface,
     audioDecoderInterface: AudioDecoderInterface
-) : FromFileBase(context, videoDecoderInterface, audioDecoderInterface) {
+) : FromFileBase(context.applicationContext, videoDecoderInterface, audioDecoderInterface) {
 
     private val rtmpClient = RtmpClient(connectChecker)
     private val streamClient = RtmpStreamClient(rtmpClient, object : StreamClientListener {
@@ -290,7 +290,7 @@ class CustomRtmpFromFile(
     ): Boolean {
         AppLogManager.i("VideoDecoder", "Starting prepareVideoWithProfile: target=${targetWidth}x${targetHeight}, bitrate=${bitrate / 1000}kbps, isPortrait=$isPortrait")
         // 1. Initial decoder extraction using base prepareVideo
-        val initialOk = super.prepareVideo(context, uri, bitrate, 0)
+        val initialOk = super.prepareVideo(context.applicationContext, uri, bitrate, 0)
         if (!initialOk) {
             AppLogManager.e("VideoDecoder", "Initial FromFileBase.prepareVideo failed! Video file track cannot be extracted or parsed.")
             return false
@@ -321,15 +321,15 @@ class CustomRtmpFromFile(
             return false
         }
 
-        // 3. Configure GL interface for fit-to-screen scaling without stretching or empty black bars
+        // 3. Configure GL interface for pure offscreen rendering without UI surface dependency
         val gl = glInterface as? GlStreamInterface
         if (gl != null) {
+            gl.deAttachPreview() // Detach any preview to avoid crashing when Activity UI is destroyed upon backgrounding
             gl.setEncoderSize(targetWidth, targetHeight)
-            gl.setPreviewResolution(targetWidth, targetHeight)
             gl.setIsPortrait(isPortrait)
             gl.forceOrientation(if (isPortrait) OrientationForced.PORTRAIT else OrientationForced.LANDSCAPE)
             gl.setAspectRatioMode(AspectRatioMode.Fill)
-            AppLogManager.s("OpenGL", "GL pipeline configured: ${targetWidth}x${targetHeight}, OrientationForced=${if (isPortrait) "PORTRAIT" else "LANDSCAPE"}, AspectRatioMode.Fill")
+            AppLogManager.s("OpenGL", "GL pipeline configured for off-screen background rendering: ${targetWidth}x${targetHeight}, OrientationForced=${if (isPortrait) "PORTRAIT" else "LANDSCAPE"}, AspectRatioMode.Fill")
         } else {
             AppLogManager.w("OpenGL", "GlStreamInterface not available; falling back to default renderer.")
         }
@@ -339,11 +339,11 @@ class CustomRtmpFromFile(
 
     override fun startStream(endpoint: String) {
         super.startStream(endpoint)
-        // Enforce GL surface parameters after base encoders start
+        // Enforce GL offscreen surface parameters after base encoders start
         val isPortrait = videoEncoder.height > videoEncoder.width
         (glInterface as? GlStreamInterface)?.let { gl ->
+            gl.deAttachPreview() // Ensure no UI surface dependency when backgrounded
             gl.setEncoderSize(videoEncoder.width, videoEncoder.height)
-            gl.setPreviewResolution(videoEncoder.width, videoEncoder.height)
             gl.setIsPortrait(isPortrait)
             gl.forceOrientation(if (isPortrait) OrientationForced.PORTRAIT else OrientationForced.LANDSCAPE)
             gl.setAspectRatioMode(AspectRatioMode.Fill)
