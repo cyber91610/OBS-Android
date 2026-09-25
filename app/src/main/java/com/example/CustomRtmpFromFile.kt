@@ -42,15 +42,35 @@ class CustomRtmpFromFile(
         }
     })
 
-    private var lastSentVideoTime = 0L
-    private var lastSentAudioTime = 0L
-    private var videoTimeOffset = 0L
-    private var audioTimeOffset = 0L
+    private var cachedSps: ByteBuffer? = null
+    private var cachedPps: ByteBuffer? = null
+    private var cachedVps: ByteBuffer? = null
+    private var cachedSampleRate = 44100
+    private var cachedIsStereo = true
+
+    private var lastSentVideoTime = 0L // in ms
+    private var lastSentAudioTime = 0L // in ms
+    private var videoTimeOffset = 0L // in ms
+    private var audioTimeOffset = 0L // in ms
 
     fun markReconnect() {
         videoTimeOffset += lastSentVideoTime
         audioTimeOffset += lastSentAudioTime
-        AppLogManager.i("StreamManager", "Reconnect marked: videoTimeOffset=$videoTimeOffset us, audioTimeOffset=$audioTimeOffset us (lastSentVideoTime=$lastSentVideoTime, lastSentAudioTime=$lastSentAudioTime)")
+        AppLogManager.i("StreamManager", "Reconnect marked: videoTimeOffset=$videoTimeOffset ms, audioTimeOffset=$audioTimeOffset ms (lastSentVideoTime=$lastSentVideoTime ms, lastSentAudioTime=$lastSentAudioTime ms)")
+
+        try {
+            val sps = cachedSps
+            val pps = cachedPps
+            val vps = cachedVps
+            if (sps != null && pps != null) {
+                rtmpClient.setVideoInfo(sps, pps, vps)
+                AppLogManager.s("RtmpSequenceHeader", "Resent cached H.264 SPS/PPS sequence headers on reconnected socket.")
+            }
+            rtmpClient.setAudioInfo(cachedSampleRate, cachedIsStereo)
+            AppLogManager.s("RtmpSequenceHeader", "Resent AAC audio info/config on reconnected socket.")
+        } catch (e: Exception) {
+            AppLogManager.w("RtmpSequenceHeader", "Error resending sequence headers: ${e.message}")
+        }
     }
 
     private var pauseStartTimeNs = 0L
@@ -196,6 +216,8 @@ class CustomRtmpFromFile(
     override fun getStreamClient(): StreamBaseClient = streamClient
 
     override fun prepareAudioRtp(isStereo: Boolean, sampleRate: Int) {
+        cachedSampleRate = sampleRate
+        cachedIsStereo = isStereo
         AppLogManager.i("AudioEncoder", "Audio RTP prepared: sampleRate=${sampleRate}Hz, isStereo=$isStereo")
         rtmpClient.setAudioInfo(sampleRate, isStereo)
     }
@@ -216,18 +238,22 @@ class CustomRtmpFromFile(
     }
 
     override fun onSpsPpsVpsRtp(sps: ByteBuffer, pps: ByteBuffer, vps: ByteBuffer?) {
-        AppLogManager.d("VideoEncoder", "H.264 SPS/PPS parameters received and configured.")
+        cachedSps = sps.duplicate()
+        cachedPps = pps.duplicate()
+        cachedVps = vps?.duplicate()
+        AppLogManager.d("VideoEncoder", "H.264 SPS/PPS parameters received, cached, and configured.")
         rtmpClient.setVideoInfo(sps, pps, vps)
     }
 
     override fun getH264DataRtp(h264Buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        lastSentVideoTime = info.presentationTimeUs
-        val adjustedPts = info.presentationTimeUs + videoTimeOffset
+        val ptsMs = info.presentationTimeUs / 1000L
+        lastSentVideoTime = ptsMs
+        val adjustedPtsMs = ptsMs + videoTimeOffset
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
                 info.size,
-                adjustedPts,
+                adjustedPtsMs * 1000L,
                 info.flags
             )
         }
@@ -235,13 +261,14 @@ class CustomRtmpFromFile(
     }
 
     override fun getAacDataRtp(aacBuffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        lastSentAudioTime = info.presentationTimeUs
-        val adjustedPts = info.presentationTimeUs + audioTimeOffset
+        val ptsMs = info.presentationTimeUs / 1000L
+        lastSentAudioTime = ptsMs
+        val adjustedPtsMs = ptsMs + audioTimeOffset
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
                 info.size,
-                adjustedPts,
+                adjustedPtsMs * 1000L,
                 info.flags
             )
         }
