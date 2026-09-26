@@ -33,6 +33,8 @@ object StreamManager {
     private const val MAX_RECONNECT_ATTEMPTS = 50
     private var streamStartTime = 0L
     private var lastVideoTime = 0.0
+    @Volatile
+    private var disconnectTimeMs = 0L
     var onServiceStopRequested: (() -> Unit)? = null
 
     fun setVideo(uri: Uri, fileName: String, metadata: VideoMetadata) {
@@ -129,6 +131,7 @@ object StreamManager {
 
         isUserStreaming = true
         reconnectAttempts = 0
+        disconnectTimeMs = 0L
         reconnectJob?.cancel()
         reconnectJob = null
 
@@ -151,6 +154,7 @@ object StreamManager {
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempts = 0
+        disconnectTimeMs = 0L
         stopStreamInternal(finishedNaturally = false, keepError = false)
         _uiState.update {
             it.copy(
@@ -196,16 +200,22 @@ object StreamManager {
             }
 
             override fun onConnectionSuccess() {
-                val wasReconnecting = reconnectAttempts > 0 || (rtmpFromFile?.isDecodersPaused() == true)
+                val wasReconnecting = reconnectAttempts > 0 || (rtmpFromFile?.isDecodersPaused() == true) || disconnectTimeMs > 0L
                 reconnectAttempts = 0
                 reconnectJob?.cancel()
                 reconnectJob = null
                 rtmpFromFile?.resetReTries(100)
                 if (wasReconnecting) {
+                    val reconnectTimeMs = System.currentTimeMillis()
+                    rtmpFromFile?.markReconnect(
+                        disconnectTimestampMs = disconnectTimeMs,
+                        reconnectTimestampMs = reconnectTimeMs
+                    )
+                    disconnectTimeMs = 0L
                     rtmpFromFile?.resumeDecoders()
-                    rtmpFromFile?.markReconnect()
                     AppLogManager.s("RTMP", "YouTube RTMP reconnected successfully! Resumed live broadcast and synced A/V decoders.")
                 } else {
+                    disconnectTimeMs = 0L
                     AppLogManager.s("RTMP", "YouTube RTMP connection successful! Handshake complete. Status: LIVE")
                 }
                 scope.launch {
@@ -223,7 +233,10 @@ object StreamManager {
                 val errMsg = "RTMP connection failed: $reason"
                 AppLogManager.e("RTMP", errMsg)
                 if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                    rtmpFromFile?.pauseDecoders()
+                    if (disconnectTimeMs == 0L) {
+                        disconnectTimeMs = System.currentTimeMillis()
+                    }
+                    rtmpFromFile?.pauseDecoders(disconnectTimeMs)
                     triggerAutoReconnect(reason)
                 } else {
                     AppLogManager.e("RTMP", "Terminating stream: isUserStreaming=$isUserStreaming, attempts=$reconnectAttempts/$MAX_RECONNECT_ATTEMPTS")
@@ -243,7 +256,10 @@ object StreamManager {
             override fun onDisconnect() {
                 AppLogManager.w("RTMP", "RTMP connection disconnected.")
                 if (isUserStreaming && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                    rtmpFromFile?.pauseDecoders()
+                    if (disconnectTimeMs == 0L) {
+                        disconnectTimeMs = System.currentTimeMillis()
+                    }
+                    rtmpFromFile?.pauseDecoders(disconnectTimeMs)
                     triggerAutoReconnect("Server disconnected socket")
                 } else if (!isUserStreaming) {
                     AppLogManager.i("RTMP", "Disconnected after user stop request.")
@@ -329,6 +345,7 @@ object StreamManager {
 
             val appContext = context.applicationContext
             val rtmp = CustomRtmpFromFile(appContext, connectChecker, videoDecoderInterface, audioDecoderInterface)
+            rtmp.resetTimestamps()
             rtmp.setLoopMode(state.isLoopEnabled)
 
             // Prepares video decoder, sets native output resolution, and configures GL Fit-to-Screen aspect ratio scaling
@@ -393,8 +410,11 @@ object StreamManager {
 
     private fun triggerAutoReconnect(reason: String) {
         if (!isUserStreaming) return
+        if (disconnectTimeMs == 0L) {
+            disconnectTimeMs = System.currentTimeMillis()
+        }
         // Explicitly ensure MP4 decoders are paused before starting reconnect loop
-        rtmpFromFile?.pauseDecoders()
+        rtmpFromFile?.pauseDecoders(disconnectTimeMs)
         if (reconnectJob?.isActive == true) {
             AppLogManager.d("RTMP", "Auto-reconnect already scheduled/running, skipping duplicate trigger.")
             return
@@ -491,6 +511,7 @@ object StreamManager {
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempts = 0
+        disconnectTimeMs = 0L
         tickerJob?.cancel()
         tickerJob = null
         lastVideoTime = 0.0

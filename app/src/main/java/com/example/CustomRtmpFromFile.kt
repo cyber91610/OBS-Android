@@ -48,15 +48,47 @@ class CustomRtmpFromFile(
     private var cachedSampleRate = 44100
     private var cachedIsStereo = true
 
-    private var lastSentVideoTime = 0L // in ms
-    private var lastSentAudioTime = 0L // in ms
-    private var videoTimeOffset = 0L // in ms
-    private var audioTimeOffset = 0L // in ms
+    @Volatile
+    var sharedTimeOffsetMs: Long = 0L
+        private set
 
-    fun markReconnect() {
-        videoTimeOffset += lastSentVideoTime
-        audioTimeOffset += lastSentAudioTime
-        AppLogManager.i("StreamManager", "Reconnect marked: videoTimeOffset=$videoTimeOffset ms, audioTimeOffset=$audioTimeOffset ms (lastSentVideoTime=$lastSentVideoTime ms, lastSentAudioTime=$lastSentAudioTime ms)")
+    @Volatile
+    private var disconnectTimeMs: Long = 0L
+
+    fun resetTimestamps() {
+        sharedTimeOffsetMs = 0L
+        disconnectTimeMs = 0L
+    }
+
+    fun markDisconnect(timestampMs: Long = System.currentTimeMillis()) {
+        if (disconnectTimeMs == 0L) {
+            disconnectTimeMs = timestampMs
+            AppLogManager.i(
+                "StreamManager",
+                "Disconnect recorded at disconnectTimeMs=$disconnectTimeMs (current sharedTimeOffsetMs=${sharedTimeOffsetMs}ms)"
+            )
+        }
+    }
+
+    fun markReconnect(
+        disconnectTimestampMs: Long = this.disconnectTimeMs,
+        reconnectTimestampMs: Long = System.currentTimeMillis()
+    ) {
+        val effectiveDisconnectTimeMs = if (disconnectTimestampMs > 0L) disconnectTimestampMs else this.disconnectTimeMs
+        if (effectiveDisconnectTimeMs > 0L && reconnectTimestampMs >= effectiveDisconnectTimeMs) {
+            val downtimeMs = reconnectTimestampMs - effectiveDisconnectTimeMs
+            sharedTimeOffsetMs += (reconnectTimestampMs - effectiveDisconnectTimeMs)
+            AppLogManager.i(
+                "StreamManager",
+                "Reconnect marked: downtime=${downtimeMs}ms (reconnectTimeMs=$reconnectTimestampMs - disconnectTimeMs=$effectiveDisconnectTimeMs), updated sharedTimeOffsetMs=${sharedTimeOffsetMs}ms"
+            )
+        } else {
+            AppLogManager.i(
+                "StreamManager",
+                "Reconnect marked: sharedTimeOffsetMs=${sharedTimeOffsetMs}ms (no prior disconnect timestamp)"
+            )
+        }
+        this.disconnectTimeMs = 0L
 
         try {
             val sps = cachedSps
@@ -113,7 +145,8 @@ class CustomRtmpFromFile(
 
     fun isDecodersPaused(): Boolean = decodersPaused
 
-    fun pauseDecoders() {
+    fun pauseDecoders(disconnectTimestampMs: Long = System.currentTimeMillis()) {
+        markDisconnect(disconnectTimestampMs)
         if (decodersPaused) return
         decodersPaused = true
         pauseStartTimeNs = System.nanoTime()
@@ -246,9 +279,8 @@ class CustomRtmpFromFile(
     }
 
     override fun getH264DataRtp(h264Buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        val ptsMs = info.presentationTimeUs / 1000L
-        lastSentVideoTime = ptsMs
-        val adjustedPtsMs = ptsMs + videoTimeOffset
+        val rawPtsMs = info.presentationTimeUs / 1000L
+        val adjustedPtsMs = rawPtsMs + sharedTimeOffsetMs
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
@@ -261,9 +293,8 @@ class CustomRtmpFromFile(
     }
 
     override fun getAacDataRtp(aacBuffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-        val ptsMs = info.presentationTimeUs / 1000L
-        lastSentAudioTime = ptsMs
-        val adjustedPtsMs = ptsMs + audioTimeOffset
+        val rawPtsMs = info.presentationTimeUs / 1000L
+        val adjustedPtsMs = rawPtsMs + sharedTimeOffsetMs
         val adjustedInfo = MediaCodec.BufferInfo().apply {
             set(
                 info.offset,
