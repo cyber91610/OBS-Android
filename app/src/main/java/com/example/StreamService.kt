@@ -55,7 +55,7 @@ class StreamService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        AppLogManager.i("StreamService", "Foreground service created")
+        AppLogManager.i("StreamService", "Foreground service created (foregroundServiceType=mediaPlayback)")
         createNotificationChannel()
 
         acquireLocks()
@@ -86,6 +86,7 @@ class StreamService : Service() {
                 acquireLocks()
                 val notification = buildNotification("Starting YouTube live broadcast...")
                 startInForeground(notification)
+                AppLogManager.s("StreamService", "Foreground service promoted with explicit FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK")
                 StreamManager.startInternal(applicationContext)
                 return START_STICKY
             }
@@ -95,12 +96,11 @@ class StreamService : Service() {
 
     private fun startInForeground(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             ServiceCompat.startForeground(
                 this,
                 NOTIFICATION_ID,
                 notification,
-                foregroundType
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
